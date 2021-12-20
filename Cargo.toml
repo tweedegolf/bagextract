@@ -14,3 +14,4 @@ zip = "0.5.13"
 tempdir = "0.3.7"
 chrono = { version = "0.4.19", features = ["serde"] }
 geo =  { version = "0.18.0", features = ["use-serde"] } 
+rijksdriehoek = "0.1.0"

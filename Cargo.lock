@@ -42,6 +42,7 @@ dependencies = [
  "chrono",
  "geo",
  "quick-xml",
+ "rijksdriehoek",
  "serde",
  "serde_derive",
  "serde_json",
@@ -360,6 +361,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "rijksdriehoek"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc5bc9a02c84e984597018001715eaa24f501263d81eab0464f19bcddf42a148"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
