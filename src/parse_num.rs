@@ -4,6 +4,8 @@ use serde_derive::Deserialize;
 use std::io::BufReader;
 use std::path::Path;
 
+use crate::postcode::CompactPostcode;
+
 #[derive(Debug, Default)]
 pub struct Postcodes {
     pub identificatie: Vec<u64>,
@@ -24,7 +26,7 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     let reader = BufReader::new(file);
     let mut archive = zip::ZipArchive::new(reader).unwrap();
 
-    for i in (0..archive.len()).take(10) {
+    for i in (0..archive.len()) {
         let file = archive.by_index(i).unwrap();
         let outpath = {
             let f = file.enclosed_name().map(|x| x.to_path_buf());
@@ -95,49 +97,6 @@ fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::
     }
 
     Ok(())
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct CompactPostcode {
-    digits: u16,
-    letters: [u8; 2],
-}
-
-impl std::fmt::Debug for CompactPostcode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompactPostcode")
-            .field("digits", &self.digits)
-            .field("letters", &self.letters)
-            .field(
-                "pretty",
-                &format!(
-                    "{} {}{}",
-                    self.digits, self.letters[0] as char, self.letters[1] as char
-                ),
-            )
-            .finish()
-    }
-}
-
-impl TryFrom<&str> for CompactPostcode {
-    type Error = ();
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() != 6 {
-            return Err(());
-        }
-
-        let digits: u16 = match &value[..4].parse() {
-            Ok(v) => *v,
-            Err(e) => {
-                panic!("{}", e);
-            }
-        };
-
-        let letters: [u8; 2] = value[4..6].as_bytes().try_into().unwrap();
-
-        Ok(CompactPostcode { digits, letters })
-    }
 }
 
 // horrible duplication

@@ -26,7 +26,7 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let reader = BufReader::new(file);
     let mut archive = zip::ZipArchive::new(reader).unwrap();
 
-    for i in (0..archive.len()).take(10) {
+    for i in (0..archive.len()) {
         let file = archive.by_index(i).unwrap();
         let outpath = {
             let f = file.enclosed_name().map(|x| x.to_path_buf());
@@ -121,8 +121,8 @@ struct Point {
 
 #[derive(Debug)]
 pub struct Geopunt {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl<'de> Deserialize<'de> for Geopunt {
