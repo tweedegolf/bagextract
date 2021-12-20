@@ -18,22 +18,37 @@ fn extract() -> std::io::Result<()> {
     // process_file(path)
     if let Ok(it) = std::fs::read_dir("/home/folkertdev/Downloads/inspire/") {
         for x in it {
-            process_file(&x.unwrap().path())?;
+            let path = x.unwrap().path();
+            let state = process_file(&path)?;
+
+            dbg!(
+                path,
+                state.adressen.geopunten.len(),
+                state.postcodes.postcodes.len()
+            );
         }
     }
     Ok(())
 }
 
-fn process_file(file_path: &Path) -> std::io::Result<()> {
+fn process_file(file_path: &Path) -> std::io::Result<State> {
     let file = std::fs::File::open(file_path)?;
     let reader = BufReader::new(file);
 
-    process_file_help(file_path, reader)
+    let mut state = State::default();
+
+    process_file_help(&mut state, file_path, reader)?;
+
+    Ok(state)
 }
 
-fn process_file_help<R: Read + Seek>(file_path: &Path, reader: R) -> std::io::Result<()> {
+fn process_file_help<R: Read + Seek>(
+    state: &mut State,
+    file_path: &Path,
+    reader: R,
+) -> std::io::Result<()> {
     match file_path.extension().and_then(|x| x.to_str()) {
-        Some("zip") => process_zip(reader),
+        Some("zip") => process_zip(state, reader),
         Some("xml") => {
             println!("ignoring {:?}", file_path);
             Ok(())
@@ -49,14 +64,18 @@ fn process_file_help<R: Read + Seek>(file_path: &Path, reader: R) -> std::io::Re
     }
 }
 
-fn process_file_help2<R: Read>(file_path: &Path, reader: R) -> std::io::Result<()> {
+fn process_file_help2<R: Read>(
+    state: &mut State,
+    file_path: &Path,
+    reader: R,
+) -> std::io::Result<()> {
     match file_path.extension().and_then(|x| x.to_str()) {
         Some("zip") => panic!("nested too deep"),
         Some("xml") => {
             if file_path.starts_with("GEM-WPL-RELATIE") {
                 Ok(())
             } else {
-                process_xml(reader)
+                process_xml(state, reader)
             }
         }
         Some("csv") => {
@@ -70,17 +89,136 @@ fn process_file_help2<R: Read>(file_path: &Path, reader: R) -> std::io::Result<(
     }
 }
 
-fn process_xml<R: Read>(reader: R) -> std::io::Result<()> {
+fn process_xml<R: Read>(state: &mut State, reader: R) -> std::io::Result<()> {
     let reader = BufReader::new(reader);
     let all: Wrapper = quick_xml::de::from_reader(reader).unwrap();
 
     // println!("size: {}", all.antwoord.producten.product.objects.len());
-    let _ = all.antwoord.producten.product.objects.len();
+    let objects = all.antwoord.producten.product.objects;
+
+    for object in objects {
+        println!(
+            "lengths: {} {}",
+            state.adressen.geopunten.len(),
+            state.postcodes.postcodes.len()
+        );
+        match object {
+            BagObject::Verblijfsobject {
+                verblijfsobject_geometrie,
+                gerelateerde_adressen,
+            } => {
+                let point = if let Some(point) = verblijfsobject_geometrie.point {
+                    point.pos
+                } else if let Some(polygon) = verblijfsobject_geometrie.polygon {
+                    let (x, y) = polygon.exterior.linear_ring.posList.centroid;
+                    Geopunt { x, y }
+                } else {
+                    panic!("geometry is not a point nor a polygon")
+                };
+
+                state
+                    .adressen
+                    .push(gerelateerde_adressen.hoofdadres.identificatie, point)
+            }
+            BagObject::Nummeraanduiding {
+                postcode,
+                identificatie,
+            } => match postcode {
+                None => {
+                    println!(
+                        "skipping nummeraanduiding {}, it has no postcode",
+                        identificatie
+                    );
+                }
+                Some(postcode) => {
+                    let postcode = CompactPostcode::try_from(postcode.as_str()).unwrap();
+                    state.postcodes.push(identificatie, postcode);
+                }
+            },
+            _ => {}
+        }
+    }
 
     Ok(())
 }
 
-fn process_zip<R: Read + Seek>(reader: R) -> std::io::Result<()> {
+#[derive(Debug, Default)]
+struct Adressen {
+    geopunten: Vec<Geopunt>,
+    /// postcode id for each geopunt
+    links: Vec<u64>,
+}
+
+#[derive(Debug, Default)]
+struct State {
+    postcodes: Postcodes,
+    adressen: Adressen,
+}
+
+#[derive(Debug, Default)]
+struct Postcodes {
+    identificatie: Vec<u64>,
+    postcodes: Vec<CompactPostcode>,
+}
+
+impl Postcodes {
+    fn push(&mut self, identificatie: u64, postcode: CompactPostcode) {
+        self.identificatie.push(identificatie);
+        self.postcodes.push(postcode);
+    }
+}
+
+impl Adressen {
+    fn push(&mut self, identificatie: u64, geopunt: Geopunt) {
+        self.links.push(identificatie);
+        self.geopunten.push(geopunt);
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct CompactPostcode {
+    digits: u16,
+    letters: [u8; 2],
+}
+
+impl std::fmt::Debug for CompactPostcode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompactPostcode")
+            .field("digits", &self.digits)
+            .field("letters", &self.letters)
+            .field(
+                "pretty",
+                &format!(
+                    "{} {}{}",
+                    self.digits, self.letters[0] as char, self.letters[1] as char
+                ),
+            )
+            .finish()
+    }
+}
+
+impl TryFrom<&str> for CompactPostcode {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.len() != 6 {
+            return Err(());
+        }
+
+        let digits: u16 = match &value[..4].parse() {
+            Ok(v) => *v,
+            Err(e) => {
+                panic!("{}", e);
+            }
+        };
+
+        let letters: [u8; 2] = value[4..6].as_bytes().try_into().unwrap();
+
+        Ok(CompactPostcode { digits, letters })
+    }
+}
+
+fn process_zip<R: Read + Seek>(state: &mut State, reader: R) -> std::io::Result<()> {
     let mut archive = zip::ZipArchive::new(reader).unwrap();
 
     for i in 0..archive.len() {
@@ -116,7 +254,13 @@ fn process_zip<R: Read + Seek>(reader: R) -> std::io::Result<()> {
                 outpath.display(),
                 file.size()
             );
-            process_file_help2(&outpath, file)?;
+
+            // let mut string = String::new();
+            // let mut file = file;
+            // file.read_to_string(&mut string);
+            // println!("{}", string);
+
+            process_file_help2(state, &outpath, file)?;
         }
     }
 
@@ -153,25 +297,6 @@ struct Product {
 }
 
 #[derive(Debug, Deserialize)]
-struct BagObjectCommon {
-    #[serde(alias = "identificatie")]
-    identificatie: String,
-    #[serde(alias = "aanduidingRecordInactief")]
-    #[serde(deserialize_with = "sad_boolean")]
-    aanduiding_record_inactief: bool,
-    #[serde(alias = "aanduidingRecordCorrectie")]
-    aanduiding_record_correctie: i64,
-    #[serde(alias = "officieel")]
-    #[serde(deserialize_with = "sad_boolean")]
-    officieel: bool,
-    #[serde(alias = "inOnderzoek")]
-    #[serde(deserialize_with = "sad_boolean")]
-    in_onderzoek: bool,
-    tijdvakgeldigheid: TijdvakGeldigheid,
-    bron: Bron,
-}
-
-#[derive(Debug, Deserialize)]
 enum BagObject {
     #[serde(rename = "bag_LVC:VerblijfsObjectPand")]
     VerblijfsObjectPand {},
@@ -184,7 +309,10 @@ enum BagObject {
     #[serde(rename = "bag_LVC:OpenbareRuimte")]
     OpenbareRuimte {},
     #[serde(rename = "bag_LVC:Nummeraanduiding")]
-    Nummeraanduiding {},
+    Nummeraanduiding {
+        identificatie: u64,
+        postcode: Option<String>,
+    },
     #[serde(rename = "bag_LVC:Ligplaats")]
     Ligplaats {},
     #[serde(rename = "bag_LVC:Standplaats")]
@@ -192,108 +320,112 @@ enum BagObject {
     #[serde(rename = "bag_LVC:Verblijfsobject")]
     #[serde(rename_all = "camelCase")]
     Verblijfsobject {
-        identificatie: String,
-        #[serde(deserialize_with = "sad_boolean")]
-        aanduiding_record_inactief: bool,
-        aanduiding_record_correctie: i64,
-        #[serde(deserialize_with = "sad_boolean")]
-        officieel: bool,
-        #[serde(deserialize_with = "sad_boolean")]
-        in_onderzoek: bool,
-        tijdvakgeldigheid: TijdvakGeldigheid,
-        bron: Bron,
+        gerelateerde_adressen: GerelateerdeAdressen,
+        verblijfsobject_geometrie: VerblijfsobjectGeometrie,
     },
     #[serde(rename = "bag_LVC:Pand")]
     Pand {},
 }
 
 #[derive(Debug, Deserialize)]
-struct Bron {
-    documentnummer: String,
-    #[serde(deserialize_with = "decode_date")]
-    documentdatum: NaiveDate,
+struct GerelateerdeAdressen {
+    hoofdadres: Hoofdadres,
 }
 
 #[derive(Debug, Deserialize)]
-struct TijdvakGeldigheid {
-    #[serde(alias = "begindatumTijdvakGeldigheid")]
-    #[serde(deserialize_with = "decode_datetime")]
-    begindatum_tijdvak_geldigheid: DateTime<Utc>,
-    #[serde(alias = "einddatumTijdvakGeldigheid")]
-    #[serde(deserialize_with = "decode_datetime")]
-    einddatum_tijdvak_geldigheid: DateTime<Utc>,
+struct Hoofdadres {
+    identificatie: u64,
+}
+#[derive(Debug, Deserialize)]
+struct VerblijfsobjectGeometrie {
+    #[serde(alias = "Point")]
+    point: Option<Point>,
+    #[serde(alias = "Polygon")]
+    polygon: Option<Polygon>,
 }
 
-fn decode_date<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    let string = String::deserialize(deserializer)?;
-    Ok(parse_date(&string))
+#[derive(Debug, Deserialize)]
+struct Point {
+    pos: Geopunt,
 }
 
-fn decode_datetime<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    let string = String::deserialize(deserializer)?;
-    let naive = parse_datetime(&string);
-    Ok(DateTime::from_utc(naive, Utc))
+#[derive(Debug)]
+struct Geopunt {
+    x: f32,
+    y: f32,
 }
 
-fn sad_boolean<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    let sad = String::deserialize(deserializer)?;
+impl<'de> Deserialize<'de> for Geopunt {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
 
-    if sad == "N" {
-        Ok(false)
-    } else if sad == "Y" {
-        Ok(true)
-    } else {
-        dbg!(sad);
-        todo!()
+        let mut it = string.split(' ');
+
+        let x_string = it.next().unwrap();
+        let y_string = it.next().unwrap();
+
+        let x: f32 = x_string.parse().unwrap();
+        let y: f32 = y_string.parse().unwrap();
+
+        Ok(Geopunt { x, y })
     }
 }
 
-fn parse_date(input: &str) -> NaiveDate {
-    debug_assert_eq!(input.len(), "20180326".len());
-
-    let year_str = &input[0..4];
-    let month_str = &input[4..6];
-    let day_str = &input[6..8];
-
-    let year: i32 = year_str.parse().unwrap();
-    let month: u32 = month_str.parse().unwrap();
-    let day: u32 = day_str.parse().unwrap();
-
-    NaiveDate::from_ymd(year, month, day)
+#[derive(Debug, Deserialize)]
+struct Polygon {
+    exterior: Exterior,
 }
 
-fn parse_time(input: &str) -> NaiveTime {
-    debug_assert_eq!(input.len(), "00000000".len());
-
-    let h_str = &input[0..2];
-    let m_str = &input[2..4];
-    let s_str = &input[4..6];
-    let mm_str = &input[6..8];
-
-    let h: u32 = h_str.parse().unwrap();
-    let m: u32 = m_str.parse().unwrap();
-    let s: u32 = s_str.parse().unwrap();
-    let mm: u32 = mm_str.parse().unwrap();
-
-    NaiveTime::from_hms_milli(h, m, s, mm)
+#[derive(Debug, Deserialize)]
+struct Exterior {
+    #[serde(rename = "LinearRing")]
+    linear_ring: LinearRing,
 }
 
-fn parse_datetime(input: &str) -> NaiveDateTime {
-    debug_assert_eq!(input.len(), "2018032600000000".len());
+#[derive(Debug, Deserialize)]
+struct LinearRing {
+    posList: PosList,
+}
 
-    let date = parse_date(&input[..8]);
-    let time = parse_time(&input[8..]);
+#[derive(Debug)]
+struct PosList {
+    centroid: (f32, f32),
+}
 
-    NaiveDateTime::new(date, time)
+impl<'de> Deserialize<'de> for PosList {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+
+        let mut values = string.split_ascii_whitespace().map(|x| {
+            let y: f32 = x.parse().unwrap();
+            y
+        });
+
+        let mut points = Vec::new();
+
+        while let Some(x) = values.next() {
+            let y = values.next().unwrap();
+            let _ = values.next().unwrap();
+
+            points.push((x, y));
+        }
+
+        let line_string = geo::LineString::from(points);
+
+        let polygon = geo::Polygon::new(line_string, vec![]);
+
+        use geo::algorithm::centroid::Centroid;
+        let centroid = polygon.centroid().unwrap();
+
+        let point = (centroid.x(), centroid.y());
+        Ok(PosList { centroid: point })
+    }
 }
 
 #[cfg(test)]
@@ -301,54 +433,20 @@ mod test {
     use super::*;
 
     #[test]
-    fn parse_officieel() {
-        let input = r#" 
-            <Verblijfsobject>
-                <officieel>N</officieel> 
-            </Verblijfsobject>
-            "#;
-
-        #[derive(Debug, Deserialize)]
-        struct SadBoolean {
-            #[serde(rename = "Y")]
-            yes: Option<()>,
-            #[serde(rename = "N")]
-            no: Option<()>,
-        }
-
-        #[derive(Debug, Deserialize)]
-        struct Verblijfsobject {
-            officieel: SadBoolean,
-        }
-
-        let object: Verblijfsobject = quick_xml::de::from_str(input).unwrap();
-
-        dbg!(&object);
-    }
-
-    #[test]
-    fn parse_tijdvakgeldigheid() {
-        let input = r#"
-<bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid>
-"#;
-
-        let object: TijdvakGeldigheid = quick_xml::de::from_str(input).unwrap();
-
-        dbg!(&object);
-    }
-
-    #[test]
-    fn test_parse_datetime() {
-        // format: JJJJMMDDUUMMSSmm
-        let input = "2018032600000000";
-    }
-
-    #[test]
     fn parse_verblijfsobject() {
         let input = r#"
-<bag_LVC:Verblijfsobject><bag_LVC:gerelateerdeAdressen><bag_LVC:hoofdadres><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie></bag_LVC:hoofdadres></bag_LVC:gerelateerdeAdressen><bag_LVC:identificatie>0000010000057469</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:verblijfsobjectGeometrie><gml:Point srsName="urn:ogc:def:crs:EPSG::28992">
+<bag_LVC:Verblijfsobject><bag_LVC:gerelateerdeAdressen><bag_LVC:hoofdadres><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie></bag_LVC:hoofdadres></bag_LVC:gerelateerdeAdressen>
+
+<bag_LVC:identificatie>0000010000057469</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:officieel>N</bag_LVC:officieel>
+
+
+<bag_LVC:verblijfsobjectGeometrie><gml:Point srsName="urn:ogc:def:crs:EPSG::28992">
   <gml:pos>188391.884 334586.439 0.0</gml:pos>
-</gml:Point></bag_LVC:verblijfsobjectGeometrie><bag_LVC:gebruiksdoelVerblijfsobject>woonfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>72</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>1883100000010452</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
+</gml:Point></bag_LVC:verblijfsobjectGeometrie>
+
+
+
+<bag_LVC:gebruiksdoelVerblijfsobject>woonfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>72</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>1883100000010452</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
 "#;
 
         let object: BagObject = quick_xml::de::from_str(input).unwrap();
@@ -358,7 +456,7 @@ mod test {
 
     #[test]
     fn wrapper() {
-        let input = r#" 
+        let input = r#"
                 <xb:BAG-Extract-Deelbestand-LVC>
                   <xb:antwoord>
                     <xb:vraag>
@@ -383,6 +481,41 @@ mod test {
             "#;
 
         let object: Wrapper = quick_xml::de::from_str(input).unwrap();
+
+        dbg!(&object);
+    }
+
+    #[test]
+    fn parse_polygon() {
+        let input = r#"
+                <gml:Polygon srsName="urn:ogc:def:crs:EPSG::28992"><gml:exterior><gml:LinearRing><gml:posList srsDimension="3" count="12"> 
+                    233392.425  581908.265   0.0
+                    233385.577  581905.776   0.0 
+                    233390.499  581895.538   0.0 
+                    233389.485  581895.102   0.0 
+                    233391.734  581889.74    0.0 
+                    233392.519  581888.052   0.0 
+                    233400.163  581891.489   0.0 
+                    233400.211  581891.511   0.0 
+                    233399.906  581892.19    0.0 
+                    233399.85   581892.168   0.0 
+                    233396.991  581898.366   0.0 
+                    233392.425  581908.265   0.0
+                </gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>
+        "#;
+
+        let object: Polygon = quick_xml::de::from_str(input).unwrap();
+
+        dbg!(&object);
+    }
+
+    #[test]
+    fn parse_nummeraanduiding() {
+        let input = r#"
+            <bag_LVC:Nummeraanduiding><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:huisnummer>32</bag_LVC:huisnummer><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:huisletter>A</bag_LVC:huisletter><bag_LVC:postcode>6131BE</bag_LVC:postcode><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:typeAdresseerbaarObject>Verblijfsobject</bag_LVC:typeAdresseerbaarObject><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:nummeraanduidingStatus>Naamgeving uitgegeven</bag_LVC:nummeraanduidingStatus><bag_LVC:gerelateerdeOpenbareRuimte><bag_LVC:identificatie>1883300000001522</bag_LVC:identificatie></bag_LVC:gerelateerdeOpenbareRuimte></bag_LVC:Nummeraanduiding>
+"#;
+
+        let object: BagObject = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }
