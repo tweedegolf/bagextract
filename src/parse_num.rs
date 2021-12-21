@@ -29,35 +29,14 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
 
     for i in 0..archive.len() {
         let file = archive.by_index(i).unwrap();
-        let outpath = {
-            let f = file.enclosed_name().map(|x| x.to_path_buf());
-            match f {
-                Some(path) => path.clone(),
-                None => {
-                    println!("Entry {} has a suspicious path", file.name());
-                    continue;
-                }
-            }
-        };
 
-        {
-            let comment = file.comment();
-            if !comment.is_empty() {
-                println!("Entry {} comment: {}", i, comment);
-            }
-        }
-
-        if (file.name()).ends_with('/') {
-            println!(
-                "Entry {} is a directory with name \"{}\"",
-                i,
-                outpath.display()
-            );
+        if file.name().ends_with('/') {
+            println!("Entry {} is a directory with name \"{}\"", i, file.name());
         } else {
             println!(
                 "Entry {} is a file with name \"{}\" ({} bytes)",
                 i,
-                outpath.display(),
+                file.name(),
                 file.size()
             );
 
@@ -71,20 +50,14 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
 
 fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::Result<()> {
     let reader = BufReader::new(reader);
-    let all: Wrapper<Nummeraanduiding> = quick_xml::de::from_reader(reader).unwrap();
+    let wrapper: Wrapper<Nummeraanduiding> = quick_xml::de::from_reader(reader).unwrap();
 
-    let objects = all.objects;
-
-    for object in objects {
+    for object in wrapper.objects {
         match object.postcode {
             None => {
-                println!(
-                    "skipping nummeraanduiding {}, it has no postcode",
-                    object.identificatie
-                );
+                // println!( "skipping nummeraanduiding {}, it has no postcode", object.identificatie);
             }
             Some(postcode) => {
-                let postcode = CompactPostcode::try_from(postcode.as_str()).unwrap();
                 result.push(object.identificatie, postcode);
             }
         }
@@ -97,7 +70,7 @@ fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::
 #[serde(rename = "bag_LVC:Nummeraanduiding")]
 struct Nummeraanduiding {
     identificatie: u64,
-    postcode: Option<String>,
+    postcode: Option<CompactPostcode>,
 }
 
 #[cfg(test)]
@@ -164,6 +137,15 @@ mod test {
 "#;
 
         let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
+
+        dbg!(&object);
+    }
+
+    #[test]
+    fn compact_postcode() {
+        let input = r#"<Foo>9999XX</Foo>"#;
+
+        let object: CompactPostcode = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }

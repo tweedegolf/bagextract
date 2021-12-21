@@ -72,28 +72,19 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
 
 fn process_xml<R: std::io::Read>(result: &mut Verblijfsobjecten, reader: R) -> std::io::Result<()> {
     let reader = BufReader::new(reader);
-    let all: Wrapper<BagObject> = quick_xml::de::from_reader(reader).unwrap();
+    let wrapper: Wrapper<Verblijfsobject> = quick_xml::de::from_reader(reader).unwrap();
 
-    // println!("size: {}", all.antwoord.producten.product.objects.len());
-    let objects = all.objects;
+    for object in wrapper.objects {
+        let point = if let Some(point) = object.verblijfsobject_geometrie.point {
+            point.pos
+        } else if let Some(polygon) = object.verblijfsobject_geometrie.polygon {
+            let (x, y) = polygon.exterior.linear_ring.pos_list.centroid;
+            Geopunt { x, y }
+        } else {
+            panic!("geometry is not a point nor a polygon")
+        };
 
-    for object in objects {
-        if let BagObject::Verblijfsobject {
-            verblijfsobject_geometrie,
-            gerelateerde_adressen,
-        } = object
-        {
-            let point = if let Some(point) = verblijfsobject_geometrie.point {
-                point.pos
-            } else if let Some(polygon) = verblijfsobject_geometrie.polygon {
-                let (x, y) = polygon.exterior.linear_ring.pos_list.centroid;
-                Geopunt { x, y }
-            } else {
-                panic!("geometry is not a point nor a polygon")
-            };
-
-            result.push(gerelateerde_adressen.hoofdadres.identificatie, point)
-        }
+        result.push(object.gerelateerde_adressen.hoofdadres.identificatie, point)
     }
 
     Ok(())
@@ -127,22 +118,40 @@ pub struct Geopunt {
     pub y: f32,
 }
 
-impl<'de> Deserialize<'de> for Geopunt {
+/// Custom serde deserializer so we don't create an intermediate string
+impl<'de> serde::de::Deserialize<'de> for Geopunt {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let string = String::deserialize(deserializer)?;
+        use std::fmt;
 
-        let mut it = string.split(' ');
+        struct FieldVisitor;
 
-        let x_string = it.next().unwrap();
-        let y_string = it.next().unwrap();
+        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+            type Value = Geopunt;
 
-        let x: f32 = x_string.parse().unwrap();
-        let y: f32 = y_string.parse().unwrap();
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a postcode")
+            }
 
-        Ok(Geopunt { x, y })
+            fn visit_str<E>(self, value: &str) -> Result<Geopunt, E>
+            where
+                E: serde::de::Error,
+            {
+                let mut it = value.split(' ');
+
+                let x_string = it.next().unwrap();
+                let y_string = it.next().unwrap();
+
+                let x: f32 = x_string.parse().unwrap();
+                let y: f32 = y_string.parse().unwrap();
+
+                Ok(Geopunt { x, y })
+            }
+        }
+
+        deserializer.deserialize_str(FieldVisitor)
     }
 }
 
@@ -173,60 +182,57 @@ impl<'de> Deserialize<'de> for PosList {
     where
         D: serde::Deserializer<'de>,
     {
-        let string = String::deserialize(deserializer)?;
+        use std::fmt;
 
-        let mut values = string.split_ascii_whitespace().map(|x| {
-            let y: f32 = x.parse().unwrap();
-            y
-        });
+        struct FieldVisitor;
 
-        let mut points = Vec::new();
+        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+            type Value = PosList;
 
-        while let Some(x) = values.next() {
-            let y = values.next().unwrap();
-            let _ = values.next().unwrap();
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a postcode")
+            }
 
-            points.push((x, y));
+            fn visit_str<E>(self, value: &str) -> Result<PosList, E>
+            where
+                E: serde::de::Error,
+            {
+                let mut values = value.split_ascii_whitespace().map(|x| {
+                    let y: f32 = x.parse().unwrap();
+                    y
+                });
+
+                let mut points = Vec::new();
+
+                while let Some(x) = values.next() {
+                    let y = values.next().unwrap();
+                    let _ = values.next().unwrap();
+
+                    points.push((x, y));
+                }
+
+                let line_string = geo::LineString::from(points);
+
+                let polygon = geo::Polygon::new(line_string, vec![]);
+
+                use geo::algorithm::centroid::Centroid;
+                let centroid = polygon.centroid().unwrap();
+
+                let point = (centroid.x(), centroid.y());
+                Ok(PosList { centroid: point })
+            }
         }
 
-        let line_string = geo::LineString::from(points);
-
-        let polygon = geo::Polygon::new(line_string, vec![]);
-
-        use geo::algorithm::centroid::Centroid;
-        let centroid = polygon.centroid().unwrap();
-
-        let point = (centroid.x(), centroid.y());
-        Ok(PosList { centroid: point })
+        deserializer.deserialize_str(FieldVisitor)
     }
 }
 
 #[derive(Debug, Deserialize)]
-enum BagObject {
-    #[serde(rename = "bag_LVC:VerblijfsObjectPand")]
-    VerblijfsObjectPand {},
-    #[serde(rename = "bag_LVC:AdresseerbaarObjectNevenAdres")]
-    AdresseerbaarObjectNevenAdres {},
-    #[serde(rename = "bag_LVC:VerblijfsObjectGebruiksdoel")]
-    VerblijfsObjectGebruiksdoel {},
-    #[serde(rename = "bag_LVC:Woonplaats")]
-    Woonplaats {},
-    #[serde(rename = "bag_LVC:OpenbareRuimte")]
-    OpenbareRuimte {},
-    #[serde(rename = "bag_LVC:Nummeraanduiding")]
-    Nummeraanduiding {},
-    #[serde(rename = "bag_LVC:Ligplaats")]
-    Ligplaats {},
-    #[serde(rename = "bag_LVC:Standplaats")]
-    Standplaats {},
-    #[serde(rename = "bag_LVC:Verblijfsobject")]
-    #[serde(rename_all = "camelCase")]
-    Verblijfsobject {
-        gerelateerde_adressen: GerelateerdeAdressen,
-        verblijfsobject_geometrie: VerblijfsobjectGeometrie,
-    },
-    #[serde(rename = "bag_LVC:Pand")]
-    Pand {},
+#[serde(rename = "bag_LVC:Verblijfsobject")]
+#[serde(rename_all = "camelCase")]
+struct Verblijfsobject {
+    gerelateerde_adressen: GerelateerdeAdressen,
+    verblijfsobject_geometrie: VerblijfsobjectGeometrie,
 }
 
 mod test {
@@ -252,6 +258,15 @@ mod test {
         "#;
 
         let object: Polygon = quick_xml::de::from_str(input).unwrap();
+
+        dbg!(&object);
+    }
+
+    #[test]
+    fn geopunt() {
+        let input = r#"<Foo>5.0 3.0 0.0</Foo>"#;
+
+        let object: Geopunt = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }

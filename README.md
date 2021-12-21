@@ -8,13 +8,14 @@ We want to find postcodes that are close to a particular point within the Nether
 
 ### phase 1: preparation
 
-We construct a bounding box for each postcode. That makes approximate checking for whether a point is close to a postcode very fast. For improved accuracy (the data is a little messy), we also store the actual points for each postcode. There are also some postcodes like `9999ZZ` or `9999AA` that seem to be used as placeholders. Those don't actually exist, but they do occur in the data and span most of the country.
+We construct a bounding box for each postcode. That makes approximate checking for whether a point is close to a postcode very fast. For improved accuracy, we also store the actual points for each postcode. 
+
+NOTE: There are also some postcodes like `9999ZZ` or `9999AA` that seem to be used as placeholders. Those don't actually exist, but they do occur in the data and span most of the country.
 
 ### phase 2: retrieval
 
 We draw a bounding box around our target point, then loop over all postcode bounding boxes and retain those that intersect with our target.
 Then for each retained postcode, we check that the target point is close enough to an actual adres within the postcode. 
-
 
 ## Preparing the data
 

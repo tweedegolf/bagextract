@@ -17,13 +17,13 @@ impl CompactPostcode {
         let letter1 = (self.letters[0] - b'A') as u32;
         let letter2 = (self.letters[1] - b'A') as u32;
 
-        assert_eq!(digits, digits & ((1 << 14) - 1));
-        assert_eq!(letter1, letter1 & 0b11111);
-        assert_eq!(letter2, letter2 & 0b11111);
+        debug_assert_eq!(digits, digits & ((1 << 14) - 1));
+        debug_assert_eq!(letter1, letter1 & 0b11111);
+        debug_assert_eq!(letter2, letter2 & 0b11111);
 
         let result = (digits << 10) | (letter1 << 5) | letter2;
 
-        assert_eq!(self, Self::from_u32(result));
+        debug_assert_eq!(self, Self::from_u32(result));
 
         result
     }
@@ -31,7 +31,7 @@ impl CompactPostcode {
     pub fn from_u32(input: u32) -> Self {
         let digits = (input >> 10) as u16;
 
-        assert_eq!(digits, digits & ((1 << 14) - 1));
+        debug_assert_eq!(digits, digits & ((1 << 14) - 1));
 
         let letter1 = ((input >> 5) & 0b11111) as u8 + b'A';
         let letter2 = (input & 0b11111) as u8 + b'A';
@@ -57,13 +57,7 @@ impl std::fmt::Debug for CompactPostcode {
         f.debug_struct("CompactPostcode")
             .field("digits", &self.digits)
             .field("letters", &self.letters)
-            .field(
-                "pretty",
-                &format!(
-                    "{}{}{}",
-                    self.digits, self.letters[0] as char, self.letters[1] as char
-                ),
-            )
+            .field("pretty", &self.to_string())
             .finish()
     }
 }
@@ -86,6 +80,38 @@ impl TryFrom<&str> for CompactPostcode {
         let letters: [u8; 2] = value[4..6].as_bytes().try_into().unwrap();
 
         Ok(CompactPostcode { digits, letters })
+    }
+}
+
+/// Custom serde deserializer so we don't create an intermediate string
+impl<'de> serde::de::Deserialize<'de> for CompactPostcode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use std::fmt;
+
+        struct FieldVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+            type Value = CompactPostcode;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a postcode")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<CompactPostcode, E>
+            where
+                E: serde::de::Error,
+            {
+                match CompactPostcode::try_from(value) {
+                    Ok(postcode) => Ok(postcode),
+                    Err(e) => Err(E::custom(format!("failed to decode a postcode: {:?}", e))),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(FieldVisitor)
     }
 }
 
