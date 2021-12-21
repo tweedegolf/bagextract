@@ -17,7 +17,7 @@ use memory_mapped_slice::MemoryMappedSlice;
 use postcode::CompactPostcode;
 
 fn extract() -> std::io::Result<()> {
-    if false {
+    if true {
         parse_and_persist()?;
     }
 

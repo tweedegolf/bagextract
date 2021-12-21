@@ -71,27 +71,21 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
 
 fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::Result<()> {
     let reader = BufReader::new(reader);
-    let all: Wrapper<BagObject> = quick_xml::de::from_reader(reader).unwrap();
+    let all: Wrapper<Nummeraanduiding> = quick_xml::de::from_reader(reader).unwrap();
 
     let objects = all.objects;
 
     for object in objects {
-        if let BagObject::Nummeraanduiding {
-            postcode,
-            identificatie,
-        } = object
-        {
-            match postcode {
-                None => {
-                    println!(
-                        "skipping nummeraanduiding {}, it has no postcode",
-                        identificatie
-                    );
-                }
-                Some(postcode) => {
-                    let postcode = CompactPostcode::try_from(postcode.as_str()).unwrap();
-                    result.push(identificatie, postcode);
-                }
+        match object.postcode {
+            None => {
+                println!(
+                    "skipping nummeraanduiding {}, it has no postcode",
+                    object.identificatie
+                );
+            }
+            Some(postcode) => {
+                let postcode = CompactPostcode::try_from(postcode.as_str()).unwrap();
+                result.push(object.identificatie, postcode);
             }
         }
     }
@@ -100,31 +94,10 @@ fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::
 }
 
 #[derive(Debug, Deserialize)]
-enum BagObject {
-    #[serde(rename = "bag_LVC:VerblijfsObjectPand")]
-    VerblijfsObjectPand {},
-    #[serde(rename = "bag_LVC:AdresseerbaarObjectNevenAdres")]
-    AdresseerbaarObjectNevenAdres {},
-    #[serde(rename = "bag_LVC:VerblijfsObjectGebruiksdoel")]
-    VerblijfsObjectGebruiksdoel {},
-    #[serde(rename = "bag_LVC:Woonplaats")]
-    Woonplaats {},
-    #[serde(rename = "bag_LVC:OpenbareRuimte")]
-    OpenbareRuimte {},
-    #[serde(rename = "bag_LVC:Nummeraanduiding")]
-    Nummeraanduiding {
-        identificatie: u64,
-        postcode: Option<String>,
-    },
-    #[serde(rename = "bag_LVC:Ligplaats")]
-    Ligplaats {},
-    #[serde(rename = "bag_LVC:Standplaats")]
-    Standplaats {},
-    #[serde(rename = "bag_LVC:Verblijfsobject")]
-    #[serde(rename_all = "camelCase")]
-    Verblijfsobject {},
-    #[serde(rename = "bag_LVC:Pand")]
-    Pand {},
+#[serde(rename = "bag_LVC:Nummeraanduiding")]
+struct Nummeraanduiding {
+    identificatie: u64,
+    postcode: Option<String>,
 }
 
 #[cfg(test)]
@@ -148,7 +121,7 @@ mod test {
 <bag_LVC:gebruiksdoelVerblijfsobject>woonfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>72</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>1883100000010452</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
 "#;
 
-        let object: BagObject = quick_xml::de::from_str(input).unwrap();
+        let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }
@@ -179,7 +152,7 @@ mod test {
                 </xb:BAG-Extract-Deelbestand-LVC>
             "#;
 
-        let object: Wrapper<BagObject> = quick_xml::de::from_str(input).unwrap();
+        let object: Wrapper<Nummeraanduiding> = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }
@@ -190,7 +163,7 @@ mod test {
             <bag_LVC:Nummeraanduiding><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:huisnummer>32</bag_LVC:huisnummer><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:huisletter>A</bag_LVC:huisletter><bag_LVC:postcode>6131BE</bag_LVC:postcode><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:typeAdresseerbaarObject>Verblijfsobject</bag_LVC:typeAdresseerbaarObject><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:nummeraanduidingStatus>Naamgeving uitgegeven</bag_LVC:nummeraanduidingStatus><bag_LVC:gerelateerdeOpenbareRuimte><bag_LVC:identificatie>1883300000001522</bag_LVC:identificatie></bag_LVC:gerelateerdeOpenbareRuimte></bag_LVC:Nummeraanduiding>
 "#;
 
-        let object: BagObject = quick_xml::de::from_str(input).unwrap();
+        let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }
