@@ -2,103 +2,37 @@ use std::collections::hash_map::HashMap;
 use std::path::{Path, PathBuf};
 
 fn main() -> std::io::Result<()> {
-    // let f = std::fs::File::open("/home/folkertdev/tg/pect/bagextract/single.xml").unwrap();
-    // let mut reader = BufReader::new(f);
-    // let all: Wrapper = quick_xml::de::from_reader(reader).unwrap();
-
     extract()
 }
 
 mod bounding_box;
+mod memory_mapped_slice;
 mod parse_num;
 mod parse_vbo;
 mod postcode;
 
 use bounding_box::{BoundingBox, Point};
+use memory_mapped_slice::MemoryMappedSlice;
 use postcode::CompactPostcode;
 
 fn extract() -> std::io::Result<()> {
     if false {
-        let verblijfsobjecten_path =
-            PathBuf::from("/home/folkertdev/Downloads/inspire/9999VBO08102021.zip");
-        let nummeraanduidingen_path =
-            PathBuf::from("/home/folkertdev/Downloads/inspire/9999NUM08102021.zip");
-
-        let mut store = Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
-        let mut points_per_postcode = Vec::from_iter(std::iter::repeat(Vec::new()).take(1 << 24));
-
-        let ns = parse_num::parse(&nummeraanduidingen_path);
-        let vs = parse_vbo::parse(&verblijfsobjecten_path);
-
-        match (vs, ns) {
-            (Ok(verblijfsobjecten), Ok(nummeraanduidingen)) => {
-                let it = nummeraanduidingen
-                    .identificatie
-                    .into_iter()
-                    .zip(nummeraanduidingen.postcodes.into_iter());
-                let map: HashMap<u64, CompactPostcode> = it.collect();
-
-                let it = verblijfsobjecten
-                    .postcode_id
-                    .into_iter()
-                    .zip(verblijfsobjecten.geopunten.into_iter());
-
-                /*
-                for (id, geopunt) in it {
-                    match map.get(&id) {
-                        None => {}
-                        Some(postcode) => {
-                            let index = postcode.as_u32() as usize;
-                            let point =
-                                bounding_box::Point::from_rijksdriehoek(geopunt.x, geopunt.y);
-                            store[index].extend_with(point);
-                        }
-                    }
-                }
-                */
-
-                for (id, geopunt) in it {
-                    match map.get(&id) {
-                        None => {}
-                        Some(postcode) => {
-                            let index = postcode.as_u32() as usize;
-                            let point =
-                                bounding_box::Point::from_rijksdriehoek(geopunt.x, geopunt.y);
-                            points_per_postcode[index].push(point);
-                        }
-                    }
-                }
-            }
-            _ => panic!(),
-        }
-
-        // write_slice_to_file("/home/folkertdev/Downloads/inspire/postcodes.bin", &store)?;
-
-        let mut points = Vec::with_capacity(600_000);
-        let mut slices = Vec::with_capacity(1 << 24);
-
-        for points_with_postcode in points_per_postcode.into_iter() {
-            // let postcode = CompactPostcode::from_u32(i as u32);
-
-            let start = points.len();
-            let length = points_with_postcode.len();
-
-            points.extend(points_with_postcode);
-
-            slices.push((start as u32, length as u32));
-        }
-
-        write_slice_to_file("/home/folkertdev/Downloads/inspire/points.bin", &points)?;
-        write_slice_to_file("/home/folkertdev/Downloads/inspire/slices.bin", &slices)?;
+        parse_and_persist()?;
     }
 
-    let store = MemMappedStore::from_files("/home/folkertdev/Downloads/inspire/postcodes.bin")?;
-    let points_store = MemMappedPoints::from_files(
+    let bounding_boxes =
+        BoundingBoxes::from_file("/home/folkertdev/Downloads/inspire/postcodes.bin")?;
+    let postcode_points = Points::from_files(
         "/home/folkertdev/Downloads/inspire/points.bin",
         "/home/folkertdev/Downloads/inspire/slices.bin",
     )?;
 
-    let target = work(store, points_store, POINTS);
+    dbg!(
+        bounding_boxes.bounding_boxes.len(),
+        postcode_points.points.len()
+    );
+
+    let target = work(bounding_boxes, postcode_points, POINTS, 50.0);
 
     let pretty: Vec<_> = target.iter().map(|x| x.to_string()).collect();
 
@@ -107,21 +41,74 @@ fn extract() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Parse the VBO and NUM zip files, extract the relevant data, and persist it to disk
+fn parse_and_persist() -> std::io::Result<()> {
+    let verblijfsobjecten_path =
+        PathBuf::from("/home/folkertdev/Downloads/inspire/9999VBO08102021.zip");
+    let nummeraanduidingen_path =
+        PathBuf::from("/home/folkertdev/Downloads/inspire/9999NUM08102021.zip");
+
+    let mut store = Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
+    let mut points_per_postcode = Vec::from_iter(std::iter::repeat(Vec::new()).take(1 << 24));
+
+    let ns = parse_num::parse(&nummeraanduidingen_path);
+    let vs = parse_vbo::parse(&verblijfsobjecten_path);
+
+    match (vs, ns) {
+        (Ok(verblijfsobjecten), Ok(nummeraanduidingen)) => {
+            let it = nummeraanduidingen
+                .identificatie
+                .into_iter()
+                .zip(nummeraanduidingen.postcodes.into_iter());
+            let map: HashMap<u64, CompactPostcode> = it.collect();
+
+            let it = verblijfsobjecten
+                .postcode_id
+                .into_iter()
+                .zip(verblijfsobjecten.geopunten.into_iter());
+
+            for (id, geopunt) in it {
+                match map.get(&id) {
+                    None => {}
+                    Some(postcode) => {
+                        let index = postcode.as_u32() as usize;
+                        let point = bounding_box::Point::from_rijksdriehoek(geopunt.x, geopunt.y);
+
+                        store[index].extend_with(point);
+                        points_per_postcode[index].push(point);
+                    }
+                }
+            }
+        }
+        _ => panic!(),
+    }
+
+    BoundingBoxes::create_file("/home/folkertdev/Downloads/inspire/postcodes.bin", &store)?;
+
+    Points::create_files(
+        "/home/folkertdev/Downloads/inspire/points.bin",
+        "/home/folkertdev/Downloads/inspire/slices.bin",
+        points_per_postcode,
+    )?;
+
+    Ok(())
+}
+
 fn work(
-    store: MemMappedStore,
-    points_store: MemMappedPoints,
+    bounding_boxes: BoundingBoxes,
+    points_per_postcode: Points,
     input: &[Point],
+    radius: f32,
 ) -> Vec<CompactPostcode> {
     let mut result = Vec::new();
-    let radius = 50.0;
 
     for point in input {
         let bb = BoundingBox::around_point(*point, radius);
 
-        let mut target = store.postcodes_that_intersect_with(bb);
+        let mut target = bounding_boxes.postcodes_that_intersect_with(bb);
 
         target.retain(|postcode| {
-            let points = points_store.for_postcode(*postcode);
+            let points = points_per_postcode.for_postcode(*postcode);
 
             points.iter().any(|p| {
                 use geoutils::Location;
@@ -155,56 +142,42 @@ where
     std::fs::write(path, bytes)
 }
 
-struct MemMappedStore {
-    bounding_boxes: memmap::Mmap,
+struct BoundingBoxes {
+    bounding_boxes: MemoryMappedSlice<BoundingBox>,
 }
 
-impl MemMappedStore {
-    fn from_files<P>(bin_path: P) -> std::io::Result<Self>
+impl BoundingBoxes {
+    fn from_file<P>(bin_path: P) -> std::io::Result<Self>
     where
         P: AsRef<Path>,
     {
-        let bounding_boxes_file = std::fs::File::open(bin_path)?;
-
         let index = Self {
-            bounding_boxes: unsafe { memmap::Mmap::map(&bounding_boxes_file)? },
+            bounding_boxes: MemoryMappedSlice::from_file(bin_path)?,
         };
 
         Ok(index)
     }
 
-    /// Cast a slice of bytes to a slice of `T`.
-    /// Extracted into a function to constrain the lifetime of the result
-    fn cast_slice<T>(slice: &[u8]) -> &[T] {
-        let element_width = slice.len() / std::mem::size_of::<T>();
-        let ptr = slice.as_ptr();
-
-        unsafe { std::slice::from_raw_parts(ptr as *const _, element_width) }
-    }
-
-    fn iter(&self) -> impl Iterator<Item = (CompactPostcode, &BoundingBox)> {
-        let bounding_boxes = Self::cast_slice::<BoundingBox>(&self.bounding_boxes);
-
-        bounding_boxes
-            .iter()
-            .enumerate()
-            .filter(|(_, bb)| !bb.is_infinite())
-            .map(|(i, bb)| (CompactPostcode::from_u32(i as u32), bb))
+    fn create_file<P>(bin_path: P, data: &[BoundingBox]) -> std::io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        write_slice_to_file(bin_path, data)
     }
 
     fn for_postcode(&self, postcode: CompactPostcode) -> BoundingBox {
         let index = postcode.as_u32() as usize;
 
-        let bounding_boxes = Self::cast_slice::<BoundingBox>(&self.bounding_boxes);
-
-        bounding_boxes[index]
+        self.bounding_boxes.as_slice()[index]
     }
 
     fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<CompactPostcode> {
         let mut result = Vec::with_capacity(64);
 
-        for (postcode, bounding_box) in self.iter() {
+        let it = self.bounding_boxes.as_slice().iter().enumerate();
+        for (i, bounding_box) in it {
             if bounding_box.intersects_with(needle) {
+                let postcode = CompactPostcode::from_u32(i as u32);
                 result.push(postcode);
             }
         }
@@ -213,39 +186,55 @@ impl MemMappedStore {
     }
 }
 
-struct MemMappedPoints {
-    points: memmap::Mmap,
-    slices: memmap::Mmap,
+struct Points {
+    points: MemoryMappedSlice<Point>,
+    slices: MemoryMappedSlice<(u32, u32)>,
 }
 
-impl MemMappedPoints {
+impl Points {
     fn from_files<P>(points_path: P, slices_path: P) -> std::io::Result<Self>
     where
         P: AsRef<Path>,
     {
-        let points_file = std::fs::File::open(points_path)?;
-        let slices_file = std::fs::File::open(slices_path)?;
-
         let index = Self {
-            points: unsafe { memmap::Mmap::map(&points_file)? },
-            slices: unsafe { memmap::Mmap::map(&slices_file)? },
+            points: MemoryMappedSlice::from_file(points_path)?,
+            slices: MemoryMappedSlice::from_file(slices_path)?,
         };
 
         Ok(index)
     }
 
-    /// Cast a slice of bytes to a slice of `T`.
-    /// Extracted into a function to constrain the lifetime of the result
-    fn cast_slice<T>(slice: &[u8]) -> &[T] {
-        let element_width = slice.len() / std::mem::size_of::<T>();
-        let ptr = slice.as_ptr();
+    fn create_files<P>(
+        points_path: P,
+        slices_path: P,
+        points_per_postcode: Vec<Vec<Point>>,
+    ) -> std::io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let mut points = Vec::with_capacity(600_000);
+        let mut slices = Vec::with_capacity(1 << 24);
 
-        unsafe { std::slice::from_raw_parts(ptr as *const _, element_width) }
+        for points_with_postcode in points_per_postcode.iter() {
+            // let postcode = CompactPostcode::from_u32(i as u32);
+
+            let start = points.len();
+            let length = points_with_postcode.len();
+
+            points.extend(points_with_postcode.iter().copied());
+
+            slices.push((start as u32, length as u32));
+        }
+
+        write_slice_to_file(points_path, &points)?;
+        write_slice_to_file(slices_path, &slices)?;
+
+        Ok(())
     }
 
     fn for_postcode(&self, postcode: CompactPostcode) -> &[Point] {
-        let slices = Self::cast_slice::<(u32, u32)>(&self.slices);
-        let points = Self::cast_slice::<Point>(&self.points);
+        let slices = self.slices.as_slice();
+        let points = self.points.as_slice();
 
         let index = postcode.as_u32() as usize;
         let (start, length) = slices[index];
