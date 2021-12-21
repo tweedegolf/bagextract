@@ -4,6 +4,7 @@ use serde_derive::Deserialize;
 use std::io::BufReader;
 use std::path::Path;
 
+use crate::parse_wrapper::Wrapper;
 use crate::postcode::CompactPostcode;
 
 #[derive(Debug, Default)]
@@ -70,10 +71,9 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
 
 fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::Result<()> {
     let reader = BufReader::new(reader);
-    let all: Wrapper = quick_xml::de::from_reader(reader).unwrap();
+    let all: Wrapper<BagObject> = quick_xml::de::from_reader(reader).unwrap();
 
-    // println!("size: {}", all.antwoord.producten.product.objects.len());
-    let objects = all.antwoord.producten.product.objects;
+    let objects = all.objects;
 
     for object in objects {
         if let BagObject::Nummeraanduiding {
@@ -97,33 +97,6 @@ fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::
     }
 
     Ok(())
-}
-
-// horrible duplication
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "xb:BAG-Extract-Deelbestand-LVC")]
-struct Wrapper {
-    antwoord: Antwoord,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "xb:antwoord")]
-struct Antwoord {
-    producten: Producten,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "xb:producten")]
-struct Producten {
-    #[serde(alias = "LVC-product")]
-    product: Product,
-}
-
-#[derive(Debug, Deserialize)]
-struct Product {
-    #[serde(rename = "$value")]
-    objects: Vec<BagObject>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,7 +179,7 @@ mod test {
                 </xb:BAG-Extract-Deelbestand-LVC>
             "#;
 
-        let object: Wrapper = quick_xml::de::from_str(input).unwrap();
+        let object: Wrapper<BagObject> = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
     }
