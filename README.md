@@ -8,7 +8,7 @@ We want to find postcodes that are close to a particular point within the Nether
 
 ### phase 1: preparation
 
-We construct a bounding box for each postcode. That makes approximate checking for whether a point is close to a postcode very fast. For improved accuracy (the data is a little messy), we also store the actual points for each postcode. 
+We construct a bounding box for each postcode. That makes approximate checking for whether a point is close to a postcode very fast. For improved accuracy (the data is a little messy), we also store the actual points for each postcode. There are also some postcodes like `9999ZZ` or `9999AA` that seem to be used as placeholders. Those don't actually exist, but they do occur in the data and span most of the country.
 
 ### phase 2: retrieval
 
@@ -63,3 +63,4 @@ That adds up to an neat 24 bits per element. A vector of size `2 ** 24` is no pr
 ## What is distance
 
 Currently, euclidian distance is used. It is fast and within the borders of the Netherlands it should be accurate enough for our purposes (curvature of the earth should not matter).
+
