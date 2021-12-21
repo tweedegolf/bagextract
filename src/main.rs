@@ -48,7 +48,8 @@ fn parse_and_persist() -> std::io::Result<()> {
     let nummeraanduidingen_path =
         PathBuf::from("/home/folkertdev/Downloads/inspire/9999NUM08102021.zip");
 
-    let mut store = Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
+    let mut bounding_boxes =
+        Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
     let mut points_per_postcode = Vec::from_iter(std::iter::repeat(Vec::new()).take(1 << 24));
 
     let ns = parse_num::parse(&nummeraanduidingen_path);
@@ -74,7 +75,7 @@ fn parse_and_persist() -> std::io::Result<()> {
                         let index = postcode.as_u32() as usize;
                         let point = bounding_box::Point::from_rijksdriehoek(geopunt.x, geopunt.y);
 
-                        store[index].extend_with(point);
+                        bounding_boxes[index].extend_with(point);
                         points_per_postcode[index].push(point);
                     }
                 }
@@ -83,7 +84,10 @@ fn parse_and_persist() -> std::io::Result<()> {
         _ => panic!(),
     }
 
-    BoundingBoxes::create_file("/home/folkertdev/Downloads/inspire/postcodes.bin", &store)?;
+    BoundingBoxes::create_file(
+        "/home/folkertdev/Downloads/inspire/postcodes.bin",
+        &bounding_boxes,
+    )?;
 
     Points::create_files(
         "/home/folkertdev/Downloads/inspire/points.bin",
