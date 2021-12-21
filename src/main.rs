@@ -5,12 +5,9 @@ fn main() -> std::io::Result<()> {
     extract()
 }
 
-mod bounding_box;
-mod memory_mapped_slice;
-mod parse_num;
-mod parse_vbo;
-mod parse_wrapper;
-mod postcode;
+extern crate bagextract;
+
+use bagextract::*;
 
 use bounding_box::{BoundingBox, Point};
 use memory_mapped_slice::MemoryMappedSlice;

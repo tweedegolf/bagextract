@@ -235,6 +235,7 @@ struct Verblijfsobject {
     verblijfsobject_geometrie: VerblijfsobjectGeometrie,
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 

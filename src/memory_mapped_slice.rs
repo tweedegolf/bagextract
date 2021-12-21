@@ -1,5 +1,14 @@
 use std::path::Path;
 
+// A slice backed by a file.
+//
+// Allows us to have a value (in this case a slice) that looks like it's stored in memory, but it
+// is actually stored in a file. That means that upon initial load, no data needs to be loaded into
+// memory: loading is instantaneous.
+//
+// That of course only works if the values in the slice are represented fully by their bytes
+// (no pointers/references)
+
 pub struct MemoryMappedSlice<T> {
     mmap: memmap::Mmap,
     _marker: core::marker::PhantomData<T>,
