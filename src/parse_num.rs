@@ -26,7 +26,7 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     let reader = BufReader::new(file);
     let mut archive = zip::ZipArchive::new(reader).unwrap();
 
-    for i in (0..archive.len()) {
+    for i in 0..archive.len() {
         let file = archive.by_index(i).unwrap();
         let outpath = {
             let f = file.enclosed_name().map(|x| x.to_path_buf());

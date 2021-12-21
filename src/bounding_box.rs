@@ -6,6 +6,11 @@ pub struct BoundingBox {
     pub y_max: f32,
 }
 
+/// An "inverted" bounding box. The minimal point is infinity, the maximal one negative infinity.
+/// This box is an excellent default value: whenever we extend it with an actual point, the
+/// bounding box will be just that point. In other words, this property holds:
+///
+/// INFINITE.extend_with(p) == p
 pub const INFINITE: BoundingBox = BoundingBox {
     x_min: f32::INFINITY,
     y_min: f32::INFINITY,
@@ -27,15 +32,11 @@ impl BoundingBox {
         let long = point.x;
         let lat = point.y;
 
+        // rather imprecise...
+
         let factor = 10001.965729; // kilometers per 90 degrees
 
-        // let per_km = 90.0 / factor;
-
         let per_m = 90.0 / (factor * 1000.0);
-
-        // let w = distance / (30.9) * lat.cos();
-
-        // let frac = w / 2.0;
 
         let frac = ((distance as f64) * per_m) as f32;
 
