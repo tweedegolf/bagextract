@@ -50,7 +50,6 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 name = "bagextract"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "criterion",
  "geo",
  "geoutils",
@@ -58,8 +57,6 @@ dependencies = [
  "quick-xml",
  "rijksdriehoek",
  "serde",
- "serde_derive",
- "serde_json",
  "tempdir",
  "zip",
 ]
@@ -135,20 +132,6 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
-
-[[package]]
-name = "chrono"
-version = "0.4.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "670ad68c9088c2a963aaa298cb369688cf3f9465ce5e2d4ca10e6e0098a1ce73"
-dependencies = [
- "libc",
- "num-integer",
- "num-traits",
- "serde",
- "time",
- "winapi",
-]
 
 [[package]]
 name = "clap"
@@ -336,7 +319,6 @@ dependencies = [
  "num-traits",
  "robust",
  "rstar",
- "serde",
 ]
 
 [[package]]
@@ -348,7 +330,6 @@ dependencies = [
  "approx",
  "num-traits",
  "rstar",
- "serde",
 ]
 
 [[package]]
@@ -489,16 +470,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-integer"
-version = "0.1.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2cc698a63b549a70bc047073d2949cce27cd1c7b0a4a862d08a8031bc2801db"
-dependencies = [
- "autocfg",
- "num-traits",
-]
-
-[[package]]
 name = "num-traits"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -579,7 +550,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cc440ee4802a86e357165021e3e255a9143724da31db1e2ea540214c96a0f82"
 dependencies = [
  "memchr",
- "serde",
 ]
 
 [[package]]
@@ -751,9 +721,6 @@ name = "serde"
 version = "1.0.132"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b9875c23cf305cd1fd7eb77234cbb705f21ea6a72c637a5c6db5fe4b8e7f008"
-dependencies = [
- "serde_derive",
-]
 
 [[package]]
 name = "serde_cbor"

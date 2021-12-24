@@ -1,11 +1,8 @@
 // Parse Verblijfsobject zip file
 use serde::de::Deserialize;
-use serde_derive::Deserialize;
 
 use std::io::BufReader;
 use std::path::Path;
-
-use crate::parse_wrapper::Wrapper;
 
 #[derive(Debug, Default)]
 pub struct Verblijfsobjecten {
@@ -69,26 +66,6 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     }
 
     Ok(result)
-}
-
-fn process_xml<R: std::io::Read>(result: &mut Verblijfsobjecten, reader: R) -> std::io::Result<()> {
-    let reader = BufReader::new(reader);
-    let wrapper: Wrapper<Verblijfsobject> = quick_xml::de::from_reader(reader).unwrap();
-
-    for object in wrapper.objects {
-        let point = if let Some(point) = object.verblijfsobject_geometrie.point {
-            point.pos
-        } else if let Some(polygon) = object.verblijfsobject_geometrie.polygon {
-            let (x, y) = polygon.exterior.linear_ring.pos_list.centroid;
-            Geopunt { x, y }
-        } else {
-            panic!("geometry is not a point nor a polygon")
-        };
-
-        result.push(object.gerelateerde_adressen.hoofdadres.identificatie, point)
-    }
-
-    Ok(())
 }
 
 pub fn parse_manual_str(input: &str) -> Option<Verblijfsobjecten> {
@@ -158,10 +135,11 @@ fn parse_manual_help<B: std::io::BufRead>(
         match reader.read_event(buf) {
             Ok(Event::Start(ref e)) => match e.name() {
                 b"bag_LVC:hoofdadres" => state = State::Hoofdadres,
-                b"bag_LVC:identificatie" => match state {
-                    State::Hoofdadres => state = State::Identificatie,
-                    _ => (),
-                },
+                b"bag_LVC:identificatie" => {
+                    if let State::Hoofdadres = state {
+                        state = State::Identificatie
+                    }
+                }
                 b"gml:pos" => state = State::Point,
                 b"gml:posList" => state = State::Polygon,
                 _ => (),
@@ -209,38 +187,13 @@ fn parse_manual_help<B: std::io::BufRead>(
 
         buf.clear();
 
-        match (identificatie, geopunt) {
-            (Some(identificatie), Some(geopunt)) => {
-                return Some(Verblijfsobject2 {
-                    identificatie,
-                    geopunt,
-                })
-            }
-            _ => (),
+        if let (Some(identificatie), Some(geopunt)) = (identificatie, geopunt) {
+            return Some(Verblijfsobject2 {
+                identificatie,
+                geopunt,
+            });
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct GerelateerdeAdressen {
-    hoofdadres: Hoofdadres,
-}
-
-#[derive(Debug, Deserialize)]
-struct Hoofdadres {
-    identificatie: u64,
-}
-#[derive(Debug, Deserialize)]
-struct VerblijfsobjectGeometrie {
-    #[serde(alias = "Point")]
-    point: Option<Point>,
-    #[serde(alias = "Polygon")]
-    polygon: Option<Polygon>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Point {
-    pos: Geopunt,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -294,23 +247,6 @@ impl<'de> serde::de::Deserialize<'de> for Geopunt {
 
         deserializer.deserialize_str(FieldVisitor)
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct Polygon {
-    exterior: Exterior,
-}
-
-#[derive(Debug, Deserialize)]
-struct Exterior {
-    #[serde(rename = "LinearRing")]
-    linear_ring: LinearRing,
-}
-
-#[derive(Debug, Deserialize)]
-struct LinearRing {
-    #[serde(rename = "posList")]
-    pos_list: PosList,
 }
 
 #[derive(Debug)]
@@ -378,14 +314,6 @@ impl<'de> Deserialize<'de> for PosList {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename = "bag_LVC:Verblijfsobject")]
-#[serde(rename_all = "camelCase")]
-pub struct Verblijfsobject {
-    gerelateerde_adressen: GerelateerdeAdressen,
-    verblijfsobject_geometrie: VerblijfsobjectGeometrie,
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -393,7 +321,6 @@ mod test {
     #[test]
     fn parse_polygon() {
         let input = r#"
-                <gml:Polygon srsName="urn:ogc:def:crs:EPSG::28992"><gml:exterior><gml:LinearRing><gml:posList srsDimension="3" count="12"> 
                     233392.425  581908.265   0.0
                     233385.577  581905.776   0.0 
                     233390.499  581895.538   0.0 
@@ -406,10 +333,9 @@ mod test {
                     233399.85   581892.168   0.0 
                     233396.991  581898.366   0.0 
                     233392.425  581908.265   0.0
-                </gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>
         "#;
 
-        let object: Polygon = quick_xml::de::from_str(input).unwrap();
+        let object: PosList = std::str::FromStr::from_str(input).unwrap();
 
         dbg!(&object);
     }

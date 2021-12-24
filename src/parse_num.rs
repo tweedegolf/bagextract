@@ -1,10 +1,8 @@
 // Parse Nummeraanduiding zip file
-use serde_derive::Deserialize;
 
 use std::io::BufReader;
 use std::path::Path;
 
-use crate::parse_wrapper::Wrapper;
 use crate::postcode::CompactPostcode;
 
 #[derive(Debug, Default)]
@@ -49,26 +47,7 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     Ok(result)
 }
 
-fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::Result<()> {
-    let reader = BufReader::new(reader);
-    let wrapper: Wrapper<Nummeraanduiding> = quick_xml::de::from_reader(reader).unwrap();
-
-    for object in wrapper.objects {
-        match object.postcode {
-            None => {
-                // println!( "skipping nummeraanduiding {}, it has no postcode", object.identificatie);
-            }
-            Some(postcode) => {
-                result.push(object.identificatie, postcode);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "bag_LVC:Nummeraanduiding")]
+#[derive(Debug)]
 pub struct Nummeraanduiding {
     identificatie: u64,
     postcode: Option<CompactPostcode>,
