@@ -9,7 +9,7 @@ fn parse_input_old() -> Wrapper<Nummeraanduiding> {
 }
 
 fn parse_input_new() -> Postcodes {
-    bagextract::parse_num::parse_manual(INPUT).unwrap()
+    bagextract::parse_num::parse_manual_str(INPUT).unwrap()
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
