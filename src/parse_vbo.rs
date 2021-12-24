@@ -230,7 +230,7 @@ impl<'de> Deserialize<'de> for PosList {
 #[derive(Debug, Deserialize)]
 #[serde(rename = "bag_LVC:Verblijfsobject")]
 #[serde(rename_all = "camelCase")]
-struct Verblijfsobject {
+pub struct Verblijfsobject {
     gerelateerde_adressen: GerelateerdeAdressen,
     verblijfsobject_geometrie: VerblijfsobjectGeometrie,
 }

@@ -41,7 +41,8 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
             );
 
             let reader = BufReader::new(file);
-            process_xml(&mut result, reader)?;
+            // process_xml(&mut result, reader)?;
+            parse_manual_step(reader, &mut result).unwrap();
         }
     }
 
@@ -68,9 +69,114 @@ fn process_xml<R: std::io::Read>(result: &mut Postcodes, reader: R) -> std::io::
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "bag_LVC:Nummeraanduiding")]
-struct Nummeraanduiding {
+pub struct Nummeraanduiding {
     identificatie: u64,
     postcode: Option<CompactPostcode>,
+}
+
+pub fn parse_manual_str(input: &str) -> Option<Postcodes> {
+    let mut result = Postcodes {
+        identificatie: Vec::with_capacity(1024),
+        postcodes: Vec::with_capacity(1024),
+    };
+
+    parse_manual_step(input.as_bytes(), &mut result)?;
+
+    Some(result)
+}
+
+fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Postcodes) -> Option<()> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_reader(input);
+    let mut buf = Vec::with_capacity(1024);
+
+    loop {
+        match reader.read_event(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                    let aanduiding = parse_manual_help(&mut reader, &mut buf)?;
+                    if let Some(postcode) = aanduiding.postcode {
+                        result.push(aanduiding.identificatie, postcode);
+                    }
+                }
+            }
+            Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+            Ok(Event::Eof) => break,
+            _ => (),
+        }
+
+        buf.clear();
+    }
+
+    Some(())
+}
+
+fn parse_manual_help<B: std::io::BufRead>(
+    reader: &mut quick_xml::Reader<B>,
+    buf: &mut Vec<u8>,
+) -> Option<Nummeraanduiding> {
+    use quick_xml::events::Event;
+
+    enum State {
+        None,
+        Identificatie,
+        Postcode,
+    }
+
+    let mut state = State::None;
+
+    let mut identificatie = None;
+    let mut postcode = None;
+
+    loop {
+        match reader.read_event(buf) {
+            Ok(Event::Start(ref e)) => match e.name() {
+                b"bag_LVC:identificatie" => state = State::Identificatie,
+                b"bag_LVC:postcode" => state = State::Postcode,
+                _ => (),
+            },
+            Ok(Event::End(ref e)) => {
+                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                    match identificatie {
+                        Some(identificatie) => {
+                            return Some(Nummeraanduiding {
+                                identificatie,
+                                postcode,
+                            })
+                        }
+                        None => return None,
+                    }
+                }
+            }
+            Ok(Event::Text(e)) => match state {
+                State::None => (),
+                State::Identificatie => {
+                    let string = unsafe { std::str::from_utf8_unchecked(&e) };
+                    identificatie = Some(string.parse().unwrap());
+                    state = State::None;
+                }
+                State::Postcode => {
+                    let string = unsafe { std::str::from_utf8_unchecked(&e) };
+                    postcode = Some(CompactPostcode::try_from(string).unwrap());
+                    state = State::None;
+                }
+            },
+            Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+            Ok(Event::Eof) => return None,
+            _ => (),
+        }
+
+        buf.clear();
+
+        if let (Some(identificatie), Some(postcode)) = (identificatie, postcode) {
+            return Some(Nummeraanduiding {
+                identificatie,
+                postcode: Some(postcode),
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -139,6 +245,28 @@ mod test {
         let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
 
         dbg!(&object);
+    }
+
+    #[test]
+    fn parse_nummeraanduiding_manual() {
+        let input = r#"
+            <bag_LVC:Nummeraanduiding><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:huisnummer>32</bag_LVC:huisnummer><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:huisletter>A</bag_LVC:huisletter><bag_LVC:postcode>6131BE</bag_LVC:postcode><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:typeAdresseerbaarObject>Verblijfsobject</bag_LVC:typeAdresseerbaarObject><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:nummeraanduidingStatus>Naamgeving uitgegeven</bag_LVC:nummeraanduidingStatus><bag_LVC:gerelateerdeOpenbareRuimte><bag_LVC:identificatie>1883300000001522</bag_LVC:identificatie></bag_LVC:gerelateerdeOpenbareRuimte></bag_LVC:Nummeraanduiding>
+"#;
+
+        let mut reader = quick_xml::Reader::from_str(input);
+        let object: Nummeraanduiding = parse_manual_help(&mut reader, &mut Vec::new()).unwrap();
+
+        dbg!(&object);
+    }
+
+    #[test]
+    fn parse_nummeraanduiding_many_manual() {
+        const INPUT: &str = include_str!("/home/folkertdev/Downloads/inspire/num_01.xml");
+
+        let object: Postcodes = parse_manual_str(INPUT).unwrap();
+
+        // 10_000 elements are parsed, but some don't have a postcode
+        assert_eq!(9376, object.postcodes.len());
     }
 
     #[test]

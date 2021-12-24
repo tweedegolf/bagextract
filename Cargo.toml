@@ -17,3 +17,10 @@ geo =  { version = "0.18.0", features = ["use-serde"] }
 rijksdriehoek = "0.1.0"
 memmap = "0.7.0"
 geoutils = "0.4.1"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
