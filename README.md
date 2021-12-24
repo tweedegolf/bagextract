@@ -62,6 +62,10 @@ For each `Verblijfsobject`, we find its postcode, use that as an index into our 
 
 Separately, we also keep track of an array of points: again we use a postcode as the index, but this time the elements are vectors of points.
 
+### Parsing the data
+
+We use a manual state machine parser instead of relying on `serde`. The manual approach is about 66% faster.
+
 ### Storing the data
 
 Parsing the files and building the big arrays is expensive. We'd like to do it only once and save the state to disk, then load this already-processed data when a request comes in.
