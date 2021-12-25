@@ -4,27 +4,47 @@ use serde::de::Deserialize;
 use std::io::BufReader;
 use std::path::Path;
 
+use crate::bounding_box::Point;
+
 #[derive(Debug, Default)]
 pub struct Verblijfsobjecten {
-    pub geopunten: Vec<Geopunt>,
+    pub points: Vec<Point>,
     /// postcode id for each geopunt
     pub postcode_id: Vec<u64>,
 }
 
 impl Verblijfsobjecten {
-    fn push(&mut self, identificatie: u64, geopunt: Geopunt) {
+    fn push(&mut self, identificatie: u64, point: Point) {
         self.postcode_id.push(identificatie);
-        self.geopunten.push(geopunt);
+        self.points.push(point);
     }
 }
 
 pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
+    let file = std::fs::File::open(path)?;
+    let archive = zip::ZipArchive::new(file).unwrap();
+
+    let middle = archive.len() / 2;
+
+    let path2 = path.to_owned();
+    let result_handle = std::thread::spawn(move || parse_step(&path2, 0, middle));
+    let second_half = parse_step(path, middle, archive.len())?;
+
+    let mut result = result_handle.join().unwrap()?;
+
+    result.postcode_id.extend(second_half.postcode_id);
+    result.points.extend(second_half.points);
+
+    Ok(result)
+}
+
+fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Verblijfsobjecten> {
     let mut result = Verblijfsobjecten::default();
 
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file).unwrap();
 
-    for i in 0..archive.len() {
+    for i in start..end {
         let file = archive.by_index(i).unwrap();
         let outpath = {
             let f = file.enclosed_name().map(|x| x.to_path_buf());
@@ -61,7 +81,7 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
 
 pub fn parse_manual_str(input: &str) -> Option<Verblijfsobjecten> {
     let mut result = Verblijfsobjecten {
-        geopunten: Vec::with_capacity(10_000),
+        points: Vec::with_capacity(10_000),
         postcode_id: Vec::with_capacity(10_000),
     };
 
@@ -82,7 +102,10 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
             Ok(Event::Start(ref e)) => {
                 if let b"bag_LVC:Verblijfsobject" = e.name() {
                     let object = parse_manual_help(&mut reader, &mut buf)?;
-                    result.push(object.identificatie, object.geopunt);
+                    let geopunt = object.geopunt;
+                    let (y, x) = rijksdriehoek::rijksdriehoek_to_wgs84(geopunt.x, geopunt.y);
+                    let point = Point::new(x as f32, y as f32);
+                    result.push(object.identificatie, point);
                 }
             }
             Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
@@ -189,8 +212,8 @@ fn parse_manual_help<B: std::io::BufRead>(
 
 #[derive(Debug, Clone, Copy)]
 pub struct Geopunt {
-    pub x: f32,
-    pub y: f32,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl std::str::FromStr for Geopunt {
@@ -202,8 +225,8 @@ impl std::str::FromStr for Geopunt {
         let x_string = it.next().unwrap();
         let y_string = it.next().unwrap();
 
-        let x: f32 = x_string.parse().unwrap();
-        let y: f32 = y_string.parse().unwrap();
+        let x: f64 = x_string.parse().unwrap();
+        let y: f64 = y_string.parse().unwrap();
 
         Ok(Geopunt { x, y })
     }
@@ -242,7 +265,7 @@ impl<'de> serde::de::Deserialize<'de> for Geopunt {
 
 #[derive(Debug)]
 struct PosList {
-    centroid: (f32, f32),
+    centroid: (f64, f64),
 }
 
 impl std::str::FromStr for PosList {
@@ -250,7 +273,7 @@ impl std::str::FromStr for PosList {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut values = s.split_ascii_whitespace().map(|x| {
-            let y: f32 = x.parse().unwrap();
+            let y: f64 = x.parse().unwrap();
             y
         });
 

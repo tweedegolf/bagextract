@@ -66,14 +66,13 @@ fn parse_and_persist() -> std::io::Result<()> {
             let it = verblijfsobjecten
                 .postcode_id
                 .into_iter()
-                .zip(verblijfsobjecten.geopunten.into_iter());
+                .zip(verblijfsobjecten.points.into_iter());
 
-            for (id, geopunt) in it {
+            for (id, point) in it {
                 match map.get(&id) {
                     None => {}
                     Some(postcode) => {
                         let index = postcode.as_u32() as usize;
-                        let point = bounding_box::Point::from_rijksdriehoek(geopunt.x, geopunt.y);
 
                         bounding_boxes[index].extend_with(point);
                         points_per_postcode[index].push(point);
