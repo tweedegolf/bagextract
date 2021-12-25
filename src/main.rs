@@ -2,7 +2,51 @@ use std::collections::hash_map::HashMap;
 use std::path::{Path, PathBuf};
 
 fn main() -> std::io::Result<()> {
-    extract()
+    use clap::{App, Arg, SubCommand};
+
+    let app = App::new("bag-extract")
+        .subcommand(
+            SubCommand::with_name("generate")
+                .about("extract postcode <-> location data from inspireadressen")
+                .arg(
+                    Arg::with_name("SOURCE_DIR")
+                        .short("s")
+                        .long("source")
+                        .help("Path of the input directory")
+                        .default_value("/home/folkertdev/Downloads/inspire/foo"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("lookup")
+                .about("lookup postcodes close to a coordinate")
+                .arg(
+                    Arg::with_name("SOURCE_DIR")
+                        .short("s")
+                        .long("source")
+                        .help("Path of the input directory")
+                        .default_value("/home/folkertdev/Downloads/inspire/foo"),
+                ),
+        );
+
+    let matches = app.get_matches();
+
+    if let Some(matches) = matches.subcommand_matches("generate") {
+        let base_dir = matches.value_of("SOURCE_DIR").unwrap();
+
+        parse_and_persist(&PathBuf::from(base_dir))
+    } else if let Some(matches) = matches.subcommand_matches("lookup") {
+        let base_dir = matches.value_of("SOURCE_DIR").unwrap();
+
+        let postcodes = extract(&PathBuf::from(base_dir), POINTS, 50.0)?;
+
+        for postcode in postcodes {
+            println!("{}", postcode.to_string());
+        }
+
+        Ok(())
+    } else {
+        unreachable!()
+    }
 }
 
 extern crate bagextract;
@@ -13,42 +57,29 @@ use bounding_box::{BoundingBox, Point};
 use memory_mapped_slice::MemoryMappedSlice;
 use postcode::CompactPostcode;
 
-fn extract() -> std::io::Result<()> {
-    if true {
-        parse_and_persist()?;
-    }
-
-    let bounding_boxes =
-        BoundingBoxes::from_file("/home/folkertdev/Downloads/inspire/postcodes.bin")?;
+fn extract(
+    base_path: &Path,
+    points: &[Point],
+    radius: f32,
+) -> std::io::Result<Vec<CompactPostcode>> {
+    let bounding_boxes = BoundingBoxes::from_file(base_path.with_file_name("postcodes.bin"))?;
     let postcode_points = Points::from_files(
-        "/home/folkertdev/Downloads/inspire/points.bin",
-        "/home/folkertdev/Downloads/inspire/slices.bin",
+        base_path.with_file_name("points.bin"),
+        base_path.with_file_name("slices.bin"),
     )?;
 
-    dbg!(
-        bounding_boxes.bounding_boxes.len(),
-        postcode_points.points.len()
-    );
+    let target = work(bounding_boxes, postcode_points, points, radius);
 
-    let target = work(bounding_boxes, postcode_points, POINTS, 50.0);
-
-    let pretty: Vec<_> = target.iter().map(|x| x.to_string()).collect();
-
-    dbg!(pretty);
-
-    Ok(())
+    Ok(target)
 }
 
 /// Parse the VBO and NUM zip files, extract the relevant data, and persist it to disk
-fn parse_and_persist() -> std::io::Result<()> {
-    let verblijfsobjecten_path =
-        PathBuf::from("/home/folkertdev/Downloads/inspire/9999VBO08102021.zip");
-    let nummeraanduidingen_path =
-        PathBuf::from("/home/folkertdev/Downloads/inspire/9999NUM08102021.zip");
+fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
+    let verblijfsobjecten_path = base_path.with_file_name("9999VBO08102021.zip");
+    let nummeraanduidingen_path = base_path.with_file_name("9999NUM08102021.zip");
 
-    let mut bounding_boxes =
-        Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
-    let mut points_per_postcode = Vec::from_iter(std::iter::repeat(Vec::new()).take(1 << 24));
+    let mut bounding_boxes = vec![bounding_box::INFINITE; 1 << 24];
+    let mut points_per_postcode = vec![Vec::new(); 1 << 24];
 
     let ns_handle = std::thread::spawn(move || parse_num::parse(&nummeraanduidingen_path));
     let vs = parse_vbo::parse(&verblijfsobjecten_path);
@@ -83,14 +114,11 @@ fn parse_and_persist() -> std::io::Result<()> {
         _ => panic!(),
     }
 
-    BoundingBoxes::create_file(
-        "/home/folkertdev/Downloads/inspire/postcodes.bin",
-        &bounding_boxes,
-    )?;
+    BoundingBoxes::create_file(base_path.with_file_name("postcodes.bin"), &bounding_boxes)?;
 
     Points::create_files(
-        "/home/folkertdev/Downloads/inspire/points.bin",
-        "/home/folkertdev/Downloads/inspire/slices.bin",
+        base_path.with_file_name("points.bin"),
+        base_path.with_file_name("slices.bin"),
         points_per_postcode,
     )?;
 
@@ -115,10 +143,11 @@ fn work(
 
             points.iter().any(|p| {
                 use geoutils::Location;
+                let distance = geoutils::Distance::from_meters(radius);
                 let a = Location::new(p.x, p.y);
                 let b = Location::new(point.x, point.y);
 
-                a.haversine_distance_to(&b).meters() <= radius as f64
+                a.is_in_circle(&b, distance).unwrap()
             })
         });
 
@@ -215,12 +244,10 @@ impl Points {
     where
         P: AsRef<Path>,
     {
-        let mut points = Vec::with_capacity(600_000);
+        let mut points = Vec::with_capacity(700_000);
         let mut slices = Vec::with_capacity(1 << 24);
 
         for points_with_postcode in points_per_postcode.iter() {
-            // let postcode = CompactPostcode::from_u32(i as u32);
-
             let start = points.len();
             let length = points_with_postcode.len();
 
