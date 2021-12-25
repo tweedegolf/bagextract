@@ -342,9 +342,9 @@ mod test {
 
     #[test]
     fn geopunt() {
-        let input = r#"<Foo>5.0 3.0 0.0</Foo>"#;
+        let input = r#"5.0 3.0 0.0"#;
 
-        let object: Geopunt = quick_xml::de::from_str(input).unwrap();
+        let object: Geopunt = std::str::FromStr::from_str(input).unwrap();
 
         dbg!(&object);
     }
