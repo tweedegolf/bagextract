@@ -50,8 +50,10 @@ fn parse_and_persist() -> std::io::Result<()> {
         Vec::from_iter(std::iter::repeat(bounding_box::INFINITE).take(1 << 24));
     let mut points_per_postcode = Vec::from_iter(std::iter::repeat(Vec::new()).take(1 << 24));
 
-    let ns = parse_num::parse(&nummeraanduidingen_path);
+    let ns_handle = std::thread::spawn(move || parse_num::parse(&nummeraanduidingen_path));
     let vs = parse_vbo::parse(&verblijfsobjecten_path);
+
+    let ns = ns_handle.join().unwrap();
 
     match (vs, ns) {
         (Ok(verblijfsobjecten), Ok(nummeraanduidingen)) => {

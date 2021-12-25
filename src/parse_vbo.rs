@@ -22,8 +22,7 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let mut result = Verblijfsobjecten::default();
 
     let file = std::fs::File::open(path)?;
-    let reader = BufReader::new(file);
-    let mut archive = zip::ZipArchive::new(reader).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
 
     for i in 0..archive.len() {
         let file = archive.by_index(i).unwrap();
