@@ -39,7 +39,6 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
             );
 
             let reader = BufReader::new(file);
-            // process_xml(&mut result, reader)?;
             parse_manual_step(reader, &mut result).unwrap();
         }
     }
@@ -55,8 +54,8 @@ pub struct Nummeraanduiding {
 
 pub fn parse_manual_str(input: &str) -> Option<Postcodes> {
     let mut result = Postcodes {
-        identificatie: Vec::with_capacity(1024),
-        postcodes: Vec::with_capacity(1024),
+        identificatie: Vec::with_capacity(10_000),
+        postcodes: Vec::with_capacity(10_000),
     };
 
     parse_manual_step(input.as_bytes(), &mut result)?;

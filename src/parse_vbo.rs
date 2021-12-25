@@ -30,20 +30,13 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
         let outpath = {
             let f = file.enclosed_name().map(|x| x.to_path_buf());
             match f {
-                Some(path) => path.clone(),
+                Some(path) => path,
                 None => {
                     println!("Entry {} has a suspicious path", file.name());
                     continue;
                 }
             }
         };
-
-        {
-            let comment = file.comment();
-            if !comment.is_empty() {
-                println!("Entry {} comment: {}", i, comment);
-            }
-        }
 
         if (file.name()).ends_with('/') {
             println!(
@@ -60,7 +53,6 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
             );
 
             let reader = BufReader::new(file);
-            // process_xml(&mut result, reader)?;
             parse_manual_step(reader, &mut result).unwrap();
         }
     }
@@ -70,8 +62,8 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
 
 pub fn parse_manual_str(input: &str) -> Option<Verblijfsobjecten> {
     let mut result = Verblijfsobjecten {
-        geopunten: Vec::with_capacity(1024),
-        postcode_id: Vec::with_capacity(1024),
+        geopunten: Vec::with_capacity(10_000),
+        postcode_id: Vec::with_capacity(10_000),
     };
 
     parse_manual_step(input.as_bytes(), &mut result)?;
@@ -106,7 +98,7 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
 }
 
 #[derive(Debug)]
-struct Verblijfsobject2 {
+struct Verblijfsobject {
     identificatie: u64,
     geopunt: Geopunt,
 }
@@ -114,7 +106,7 @@ struct Verblijfsobject2 {
 fn parse_manual_help<B: std::io::BufRead>(
     reader: &mut quick_xml::Reader<B>,
     buf: &mut Vec<u8>,
-) -> Option<Verblijfsobject2> {
+) -> Option<Verblijfsobject> {
     use quick_xml::events::Event;
     use std::str::FromStr;
 
@@ -148,7 +140,7 @@ fn parse_manual_help<B: std::io::BufRead>(
                 if let b"bag_LVC:Verblijfsobject" = e.name() {
                     match (identificatie, geopunt) {
                         (Some(identificatie), Some(geopunt)) => {
-                            return Some(Verblijfsobject2 {
+                            return Some(Verblijfsobject {
                                 identificatie,
                                 geopunt,
                             })
@@ -188,7 +180,7 @@ fn parse_manual_help<B: std::io::BufRead>(
         buf.clear();
 
         if let (Some(identificatie), Some(geopunt)) = (identificatie, geopunt) {
-            return Some(Verblijfsobject2 {
+            return Some(Verblijfsobject {
                 identificatie,
                 geopunt,
             });
@@ -358,7 +350,7 @@ mod test {
 "#;
 
         let mut reader = quick_xml::Reader::from_str(input);
-        let object: Verblijfsobject2 = parse_manual_help(&mut reader, &mut Vec::new()).unwrap();
+        let object: Verblijfsobject = parse_manual_help(&mut reader, &mut Vec::new()).unwrap();
 
         dbg!(&object);
     }
