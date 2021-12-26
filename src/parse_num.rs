@@ -19,13 +19,40 @@ impl Postcodes {
 }
 
 pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
+    let file = std::fs::File::open(path)?;
+    let archive = zip::ZipArchive::new(file).unwrap();
+
+    let mut jobs = crate::in_steps(0..archive.len(), 3).into_iter();
+
+    let parent = jobs.next().unwrap();
+    let mut children = vec![];
+
+    for job in jobs {
+        let path = path.to_owned();
+        let result_handle = std::thread::spawn(move || parse_step(&path, job.start, job.end));
+        children.push(result_handle);
+    }
+
+    let mut result = parse_step(path, parent.start, parent.end)?;
+
+    for child in children {
+        let part = child.join().unwrap()?;
+
+        result.identificatie.extend(part.identificatie);
+        result.postcodes.extend(part.postcodes);
+    }
+
+    Ok(result)
+}
+
+fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Postcodes> {
     let mut result = Postcodes::default();
 
     let file = std::fs::File::open(path)?;
     let reader = BufReader::new(file);
     let mut archive = zip::ZipArchive::new(reader).unwrap();
 
-    for i in 0..archive.len() {
+    for i in start..end {
         let file = archive.by_index(i).unwrap();
 
         if file.name().ends_with('/') {

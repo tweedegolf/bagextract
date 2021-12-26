@@ -24,16 +24,25 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let file = std::fs::File::open(path)?;
     let archive = zip::ZipArchive::new(file).unwrap();
 
-    let middle = archive.len() / 2;
+    let mut jobs = crate::in_steps(0..archive.len(), 6).into_iter();
 
-    let path2 = path.to_owned();
-    let result_handle = std::thread::spawn(move || parse_step(&path2, 0, middle));
-    let second_half = parse_step(path, middle, archive.len())?;
+    let parent = jobs.next().unwrap();
+    let mut children = vec![];
 
-    let mut result = result_handle.join().unwrap()?;
+    for job in jobs {
+        let path = path.to_owned();
+        let result_handle = std::thread::spawn(move || parse_step(&path, job.start, job.end));
+        children.push(result_handle);
+    }
 
-    result.postcode_id.extend(second_half.postcode_id);
-    result.points.extend(second_half.points);
+    let mut result = parse_step(path, parent.start, parent.end)?;
+
+    for child in children {
+        let part = child.join().unwrap()?;
+
+        result.postcode_id.extend(part.postcode_id);
+        result.points.extend(part.points);
+    }
 
     Ok(result)
 }
