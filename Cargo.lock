@@ -65,6 +65,7 @@ dependencies = [
  "geoutils",
  "memmap",
  "quick-xml",
+ "rayon",
  "rijksdriehoek",
  "serde",
  "tempdir",

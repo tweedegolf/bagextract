@@ -1,6 +1,8 @@
 // Parse Verblijfsobject zip file
 use serde::de::Deserialize;
+use zip::ZipArchive;
 
+use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -18,72 +20,60 @@ impl Verblijfsobjecten {
         self.postcode_id.push(identificatie);
         self.points.push(point);
     }
+
+    fn merge(mut self, other: Self) -> Self {
+        self.postcode_id.extend(other.postcode_id);
+        self.points.extend(other.points);
+
+        self
+    }
 }
 
 pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let file = std::fs::File::open(path)?;
     let archive = zip::ZipArchive::new(file).unwrap();
 
-    let mut jobs = crate::in_steps(0..archive.len(), 6).into_iter();
-
-    let parent = jobs.next().unwrap();
-    let mut children = vec![];
-
-    for job in jobs {
-        let path = path.to_owned();
-        let result_handle = std::thread::spawn(move || parse_step(&path, job.start, job.end));
-        children.push(result_handle);
-    }
-
-    let mut result = parse_step(path, parent.start, parent.end)?;
-
-    for child in children {
-        let part = child.join().unwrap()?;
-
-        result.postcode_id.extend(part.postcode_id);
-        result.points.extend(part.points);
-    }
+    let range = 0..archive.len();
+    let result = parse_step(path, range.start, range.end)?;
 
     Ok(result)
 }
 
-fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Verblijfsobjecten> {
-    let mut result = Verblijfsobjecten::default();
+fn parse_ith_xml_file(archive: &mut ZipArchive<File>, i: usize) -> Option<Verblijfsobjecten> {
+    let file = archive.by_index(i).unwrap();
 
-    let file = std::fs::File::open(path)?;
-    let mut archive = zip::ZipArchive::new(file).unwrap();
+    if (file.name()).ends_with('/') {
+        println!("Entry {} is a directory with name \"{}\"", i, file.name());
+        None
+    } else {
+        println!(
+            "Entry {} is a file with name \"{}\" ({} bytes)",
+            i,
+            file.name(),
+            file.size()
+        );
 
-    for i in start..end {
-        let file = archive.by_index(i).unwrap();
-        let outpath = {
-            let f = file.enclosed_name().map(|x| x.to_path_buf());
-            match f {
-                Some(path) => path,
-                None => {
-                    println!("Entry {} has a suspicious path", file.name());
-                    continue;
-                }
-            }
-        };
+        let reader = BufReader::new(file);
+        let mut result = Verblijfsobjecten::default();
+        parse_manual_step(reader, &mut result).unwrap();
 
-        if (file.name()).ends_with('/') {
-            println!(
-                "Entry {} is a directory with name \"{}\"",
-                i,
-                outpath.display()
-            );
-        } else {
-            println!(
-                "Entry {} is a file with name \"{}\" ({} bytes)",
-                i,
-                outpath.display(),
-                file.size()
-            );
-
-            let reader = BufReader::new(file);
-            parse_manual_step(reader, &mut result).unwrap();
-        }
+        Some(result)
     }
+}
+
+fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Verblijfsobjecten> {
+    use rayon::prelude::*;
+
+    let init = || {
+        let file = std::fs::File::open(path).unwrap();
+        zip::ZipArchive::new(file).unwrap()
+    };
+
+    let result = (start..end)
+        .into_par_iter()
+        .map_init(init, parse_ith_xml_file)
+        .filter_map(|x| x)
+        .reduce(Verblijfsobjecten::default, Verblijfsobjecten::merge);
 
     Ok(result)
 }

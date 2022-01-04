@@ -1,5 +1,6 @@
 // Parse Nummeraanduiding zip file
 
+use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -15,6 +16,13 @@ impl Postcodes {
     fn push(&mut self, identificatie: u64, postcode: CompactPostcode) {
         self.identificatie.push(identificatie);
         self.postcodes.push(postcode);
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        self.identificatie.extend(other.identificatie);
+        self.postcodes.extend(other.postcodes);
+
+        self
     }
 }
 
@@ -45,30 +53,41 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     Ok(result)
 }
 
-fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Postcodes> {
-    let mut result = Postcodes::default();
+fn parse_ith_xml_file(archive: &mut zip::ZipArchive<File>, i: usize) -> Option<Postcodes> {
+    let file = archive.by_index(i).unwrap();
 
-    let file = std::fs::File::open(path)?;
-    let reader = BufReader::new(file);
-    let mut archive = zip::ZipArchive::new(reader).unwrap();
+    if file.name().ends_with('/') {
+        println!("Entry {} is a directory with name \"{}\"", i, file.name());
+        None
+    } else {
+        println!(
+            "Entry {} is a file with name \"{}\" ({} bytes)",
+            i,
+            file.name(),
+            file.size()
+        );
 
-    for i in start..end {
-        let file = archive.by_index(i).unwrap();
+        let reader = BufReader::new(file);
+        let mut result = Postcodes::default();
+        parse_manual_step(reader, &mut result).unwrap();
 
-        if file.name().ends_with('/') {
-            println!("Entry {} is a directory with name \"{}\"", i, file.name());
-        } else {
-            println!(
-                "Entry {} is a file with name \"{}\" ({} bytes)",
-                i,
-                file.name(),
-                file.size()
-            );
-
-            let reader = BufReader::new(file);
-            parse_manual_step(reader, &mut result).unwrap();
-        }
+        Some(result)
     }
+}
+
+fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Postcodes> {
+    use rayon::prelude::*;
+
+    let init = || {
+        let file = std::fs::File::open(path).unwrap();
+        zip::ZipArchive::new(file).unwrap()
+    };
+
+    let result = (start..end)
+        .into_par_iter()
+        .map_init(init, parse_ith_xml_file)
+        .filter_map(|x| x)
+        .reduce(Postcodes::default, Postcodes::merge);
 
     Ok(result)
 }
