@@ -1,21 +1,21 @@
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct SmallestPostcode {
+pub struct Postcode {
     bytes: [u8; 3],
 }
 
-impl PartialOrd for SmallestPostcode {
+impl PartialOrd for Postcode {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.as_u32().partial_cmp(&other.as_u32())
     }
 }
 
-impl Ord for SmallestPostcode {
+impl Ord for Postcode {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.as_u32().cmp(&other.as_u32())
     }
 }
 
-impl SmallestPostcode {
+impl Postcode {
     #[inline]
     pub const fn new(digits: u16, letter1: u8, letter2: u8) -> Self {
         let digits = digits as u32;
@@ -75,14 +75,14 @@ impl SmallestPostcode {
     }
 }
 
-impl ToString for SmallestPostcode {
+impl ToString for Postcode {
     fn to_string(&self) -> String {
         let (digits, letter1, letter2) = self.components();
         format!("{}{}{}", digits, letter1 as char, letter2 as char)
     }
 }
 
-impl std::fmt::Debug for SmallestPostcode {
+impl std::fmt::Debug for Postcode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompactPostcode")
             .field("pretty", &self.to_string())
@@ -90,7 +90,7 @@ impl std::fmt::Debug for SmallestPostcode {
     }
 }
 
-impl TryFrom<&str> for SmallestPostcode {
+impl TryFrom<&str> for Postcode {
     type Error = ();
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -107,7 +107,7 @@ impl TryFrom<&str> for SmallestPostcode {
 
         let letters: [u8; 2] = value[4..6].as_bytes().try_into().unwrap();
 
-        Ok(SmallestPostcode::new(digits, letters[0], letters[1]))
+        Ok(Postcode::new(digits, letters[0], letters[1]))
     }
 }
 
@@ -116,10 +116,10 @@ mod test {
     use super::*;
 
     fn to_and_fro(input: &str) -> String {
-        let code = SmallestPostcode::try_from(input).unwrap();
+        let code = Postcode::try_from(input).unwrap();
 
         let index = code.as_u32();
-        let and_back = SmallestPostcode::from_u32(index);
+        let and_back = Postcode::from_u32(index);
 
         and_back.to_string()
     }
