@@ -55,13 +55,9 @@ use bagextract::*;
 
 use bounding_box::{BoundingBox, Point};
 use memory_mapped_slice::MemoryMappedSlice;
-use postcode::SmallestPostcode;
+use postcode::Postcode;
 
-fn extract(
-    base_path: &Path,
-    points: &[Point],
-    radius: f32,
-) -> std::io::Result<Vec<SmallestPostcode>> {
+fn extract(base_path: &Path, points: &[Point], radius: f32) -> std::io::Result<Vec<Postcode>> {
     let bounding_boxes = BoundingBoxes::from_file(base_path.with_file_name("postcodes.bin"))?;
     let postcode_points = Points::from_files(
         base_path.with_file_name("points.bin"),
@@ -90,7 +86,7 @@ fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
                 .identificatie
                 .into_iter()
                 .zip(nummeraanduidingen.postcodes.into_iter());
-            let map: HashMap<u64, SmallestPostcode> = it.collect();
+            let map: HashMap<u64, Postcode> = it.collect();
 
             let it = verblijfsobjecten
                 .postcode_id
@@ -128,34 +124,86 @@ fn work(
     points_per_postcode: Points,
     input: &[Point],
     radius: f32,
-) -> Vec<SmallestPostcode> {
-    let mut result = Vec::new();
+) -> Vec<Postcode> {
+    let target_bounding_boxes: Vec<_> = input
+        .iter()
+        .map(|point| BoundingBox::around_point(*point, radius))
+        .collect();
 
-    for point in input {
-        let bb = BoundingBox::around_point(*point, radius);
+    let bounding_boxes = bounding_boxes.bounding_boxes.as_slice();
 
-        let mut target = bounding_boxes.postcodes_that_intersect_with(bb);
+    // evaluate in parallel if there are many points
+    let mut result: Vec<_> = if input.len() <= 64 {
+        bounding_boxes
+            .iter()
+            .enumerate()
+            .map(|(i, bounding_box)| {
+                check_against_address_locations(
+                    i,
+                    bounding_box,
+                    input,
+                    &target_bounding_boxes,
+                    radius,
+                    &points_per_postcode,
+                )
+            })
+            .flatten()
+            .collect()
+    } else {
+        use rayon::prelude::*;
 
-        target.retain(|postcode| {
-            let points = points_per_postcode.for_postcode(*postcode);
+        bounding_boxes
+            .into_par_iter()
+            .enumerate()
+            .map(|(i, bounding_box)| {
+                check_against_address_locations(
+                    i,
+                    bounding_box,
+                    input,
+                    &target_bounding_boxes,
+                    radius,
+                    &points_per_postcode,
+                )
+            })
+            .flatten()
+            .collect()
+    };
 
-            points.iter().any(|p| {
+    result.sort();
+
+    result
+}
+
+fn check_against_address_locations(
+    i: usize,
+    bounding_box: &BoundingBox,
+    input: &[Point],
+    target_bounding_boxes: &[BoundingBox],
+    radius: f32,
+    points_per_postcode: &Points,
+) -> Option<Postcode> {
+    for (point, needle) in input.iter().zip(target_bounding_boxes.iter()) {
+        if bounding_box.intersects_with(*needle) {
+            let postcode = Postcode::from_u32(i as u32);
+
+            let points = points_per_postcode.for_postcode(postcode);
+
+            let close_enough = points.iter().any(|p| {
                 use geoutils::Location;
                 let distance = geoutils::Distance::from_meters(radius);
                 let a = Location::new(p.x, p.y);
                 let b = Location::new(point.x, point.y);
 
                 a.is_in_circle(&b, distance).unwrap()
-            })
-        });
+            });
 
-        result.extend(target);
+            if close_enough {
+                return Some(postcode);
+            }
+        }
     }
 
-    result.sort();
-    result.dedup();
-
-    result
+    None
 }
 
 /// Turn a `&[T]` into a `&[u8]` and write it to a file. Clearly that only works
@@ -195,19 +243,19 @@ impl BoundingBoxes {
         write_slice_to_file(bin_path, data)
     }
 
-    fn for_postcode(&self, postcode: SmallestPostcode) -> BoundingBox {
+    fn for_postcode(&self, postcode: Postcode) -> BoundingBox {
         let index = postcode.as_u32() as usize;
 
         self.bounding_boxes.as_slice()[index]
     }
 
-    fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<SmallestPostcode> {
+    fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<Postcode> {
         let mut result = Vec::with_capacity(64);
 
         let it = self.bounding_boxes.as_slice().iter().enumerate();
         for (i, bounding_box) in it {
             if bounding_box.intersects_with(needle) {
-                let postcode = SmallestPostcode::from_u32(i as u32);
+                let postcode = Postcode::from_u32(i as u32);
                 result.push(postcode);
             }
         }
@@ -260,7 +308,7 @@ impl Points {
         Ok(())
     }
 
-    fn for_postcode(&self, postcode: SmallestPostcode) -> &[Point] {
+    fn for_postcode(&self, postcode: Postcode) -> &[Point] {
         let slices = self.slices.as_slice();
         let points = self.points.as_slice();
 
