@@ -30,25 +30,8 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     let file = std::fs::File::open(path)?;
     let archive = zip::ZipArchive::new(file).unwrap();
 
-    let mut jobs = crate::in_steps(0..archive.len(), 3).into_iter();
-
-    let parent = jobs.next().unwrap();
-    let mut children = vec![];
-
-    for job in jobs {
-        let path = path.to_owned();
-        let result_handle = std::thread::spawn(move || parse_step(&path, job.start, job.end));
-        children.push(result_handle);
-    }
-
-    let mut result = parse_step(path, parent.start, parent.end)?;
-
-    for child in children {
-        let part = child.join().unwrap()?;
-
-        result.identificatie.extend(part.identificatie);
-        result.postcodes.extend(part.postcodes);
-    }
+    let range = 0..archive.len();
+    let result = parse_step(path, range.start, range.end)?;
 
     Ok(result)
 }

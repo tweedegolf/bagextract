@@ -12,6 +12,11 @@ impl CompactPostcode {
         }
     }
 
+    /// Convert a CompactPostcode into an index
+    ///
+    /// The digits are represented as a 14-bit number (2 ** 14 = 16384, plenty of space for 9999).
+    /// The letters are assumed to be uppercase, so we have 26 options, which can be stored in 5
+    /// bits each (2 ** 5 = 32)
     pub fn as_u32(self) -> u32 {
         let digits = self.digits as u32;
         let letter1 = (self.letters[0] - b'A') as u32;
