@@ -4,16 +4,16 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use crate::postcode::CompactPostcode;
+use crate::postcode::SmallestPostcode;
 
 #[derive(Debug, Default)]
 pub struct Postcodes {
     pub identificatie: Vec<u64>,
-    pub postcodes: Vec<CompactPostcode>,
+    pub postcodes: Vec<SmallestPostcode>,
 }
 
 impl Postcodes {
-    fn push(&mut self, identificatie: u64, postcode: CompactPostcode) {
+    fn push(&mut self, identificatie: u64, postcode: SmallestPostcode) {
         self.identificatie.push(identificatie);
         self.postcodes.push(postcode);
     }
@@ -78,7 +78,7 @@ fn parse_step(path: &Path, start: usize, end: usize) -> std::io::Result<Postcode
 #[derive(Debug)]
 pub struct Nummeraanduiding {
     identificatie: u64,
-    postcode: Option<CompactPostcode>,
+    postcode: Option<SmallestPostcode>,
 }
 
 pub fn parse_manual_str(input: &str) -> Option<Postcodes> {
@@ -166,7 +166,7 @@ fn parse_manual_help<B: std::io::BufRead>(
                 }
                 State::Postcode => {
                     let string = unsafe { std::str::from_utf8_unchecked(&e) };
-                    postcode = Some(CompactPostcode::try_from(string).unwrap());
+                    postcode = Some(SmallestPostcode::try_from(string).unwrap());
                     state = State::None;
                 }
             },

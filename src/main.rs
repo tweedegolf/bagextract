@@ -55,13 +55,13 @@ use bagextract::*;
 
 use bounding_box::{BoundingBox, Point};
 use memory_mapped_slice::MemoryMappedSlice;
-use postcode::CompactPostcode;
+use postcode::SmallestPostcode;
 
 fn extract(
     base_path: &Path,
     points: &[Point],
     radius: f32,
-) -> std::io::Result<Vec<CompactPostcode>> {
+) -> std::io::Result<Vec<SmallestPostcode>> {
     let bounding_boxes = BoundingBoxes::from_file(base_path.with_file_name("postcodes.bin"))?;
     let postcode_points = Points::from_files(
         base_path.with_file_name("points.bin"),
@@ -90,7 +90,7 @@ fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
                 .identificatie
                 .into_iter()
                 .zip(nummeraanduidingen.postcodes.into_iter());
-            let map: HashMap<u64, CompactPostcode> = it.collect();
+            let map: HashMap<u64, SmallestPostcode> = it.collect();
 
             let it = verblijfsobjecten
                 .postcode_id
@@ -128,7 +128,7 @@ fn work(
     points_per_postcode: Points,
     input: &[Point],
     radius: f32,
-) -> Vec<CompactPostcode> {
+) -> Vec<SmallestPostcode> {
     let mut result = Vec::new();
 
     for point in input {
@@ -195,19 +195,19 @@ impl BoundingBoxes {
         write_slice_to_file(bin_path, data)
     }
 
-    fn for_postcode(&self, postcode: CompactPostcode) -> BoundingBox {
+    fn for_postcode(&self, postcode: SmallestPostcode) -> BoundingBox {
         let index = postcode.as_u32() as usize;
 
         self.bounding_boxes.as_slice()[index]
     }
 
-    fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<CompactPostcode> {
+    fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<SmallestPostcode> {
         let mut result = Vec::with_capacity(64);
 
         let it = self.bounding_boxes.as_slice().iter().enumerate();
         for (i, bounding_box) in it {
             if bounding_box.intersects_with(needle) {
-                let postcode = CompactPostcode::from_u32(i as u32);
+                let postcode = SmallestPostcode::from_u32(i as u32);
                 result.push(postcode);
             }
         }
@@ -260,7 +260,7 @@ impl Points {
         Ok(())
     }
 
-    fn for_postcode(&self, postcode: CompactPostcode) -> &[Point] {
+    fn for_postcode(&self, postcode: SmallestPostcode) -> &[Point] {
         let slices = self.slices.as_slice();
         let points = self.points.as_slice();
 

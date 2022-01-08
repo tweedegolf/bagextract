@@ -125,10 +125,10 @@ mod test {
     use super::*;
 
     fn to_and_fro(input: &str) -> String {
-        let code = CompactPostcode::try_from(input).unwrap();
+        let code = SmallestPostcode::try_from(input).unwrap();
 
         let index = code.as_u32();
-        let and_back = CompactPostcode::from_u32(index);
+        let and_back = SmallestPostcode::from_u32(index);
 
         and_back.to_string()
     }
@@ -148,9 +148,21 @@ mod test {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SmallestPostcode {
     bytes: [u8; 3],
+}
+
+impl PartialOrd for SmallestPostcode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.as_u32().partial_cmp(&other.as_u32())
+    }
+}
+
+impl Ord for SmallestPostcode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_u32().cmp(&other.as_u32())
+    }
 }
 
 impl SmallestPostcode {
