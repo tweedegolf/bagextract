@@ -73,6 +73,35 @@ impl BoundingBox {
             || self.x_max == INFINITE.x_max
             || self.y_max == INFINITE.y_max
     }
+
+    pub fn corners(&self) -> [Point; 4] {
+        [
+            Point::new(self.x_min, self.y_min),
+            Point::new(self.x_min, self.y_max),
+            Point::new(self.x_max, self.y_max),
+            Point::new(self.x_max, self.y_min),
+        ]
+    }
+
+    /// Writes to the postgis format, e.g.
+    ///
+    /// POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))
+    pub fn write_postgis(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
+        write!(w, "POLYGON((")?;
+
+        let corners = self.corners();
+
+        let mut it = corners.iter().peekable();
+        while let Some(corner) = it.next() {
+            write!(w, "{} {}", corner.x, corner.y)?;
+
+            if it.peek().is_some() {
+                write!(w, ",")?;
+            }
+        }
+
+        write!(w, "))")
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -96,6 +125,10 @@ impl Point {
         let b = (self.y - other.y).powi(2);
 
         (a + b).sqrt()
+    }
+
+    pub fn write_postgis(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
+        write!(w, "POINT({} {})", self.x, self.y)
     }
 }
 
