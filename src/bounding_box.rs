@@ -82,26 +82,6 @@ impl BoundingBox {
             Point::new(self.x_max, self.y_min),
         ]
     }
-
-    /// Writes to the postgis format, e.g.
-    ///
-    /// POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))
-    pub fn write_postgis(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
-        write!(w, "POLYGON((")?;
-
-        let corners = self.corners();
-
-        let mut it = corners.iter().peekable();
-        while let Some(corner) = it.next() {
-            write!(w, "{} {}", corner.x, corner.y)?;
-
-            if it.peek().is_some() {
-                write!(w, ",")?;
-            }
-        }
-
-        write!(w, "))")
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -114,21 +94,12 @@ impl Point {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    pub fn from_rijksdriehoek(x: f32, y: f32) -> Self {
-        let (y, x) = rijksdriehoek::rijksdriehoek_to_wgs84(x, y);
-
-        Self { x, y }
-    }
 
     pub fn distance_to(&self, other: &Point) -> f32 {
         let a = (self.x - other.x).powi(2);
         let b = (self.y - other.y).powi(2);
 
         (a + b).sqrt()
-    }
-
-    pub fn write_postgis(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
-        write!(w, "POINT({} {})", self.x, self.y)
     }
 }
 

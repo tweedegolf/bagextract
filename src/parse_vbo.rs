@@ -34,6 +34,8 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let archive = zip::ZipArchive::new(file).unwrap();
 
     let range = 0..archive.len();
+    // let range = 0..10;
+
     let result = parse_step(path, range.start, range.end)?;
 
     Ok(result)
@@ -102,7 +104,8 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
                 if let b"bag_LVC:Verblijfsobject" = e.name() {
                     let object = parse_manual_help(&mut reader, &mut buf)?;
                     let geopunt = object.geopunt;
-                    let (y, x) = rijksdriehoek::rijksdriehoek_to_wgs84(geopunt.x, geopunt.y);
+                    // let (y, x) = rijksdriehoek::rijksdriehoek_to_wgs84(geopunt.x, geopunt.y);
+                    let (x, y) = (geopunt.x, geopunt.y);
                     let point = Point::new(x as f32, y as f32);
                     result.push(object.identificatie, point);
                 }

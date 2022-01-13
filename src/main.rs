@@ -1,80 +1,82 @@
 use std::collections::hash_map::HashMap;
 use std::path::{Path, PathBuf};
 
+extern crate bagextract;
+
+use bagextract::*;
+
+use bounding_box::Point;
+use memory_mapped_slice::MemoryMappedSlice;
+use postcode::Postcode;
+
 fn main() -> std::io::Result<()> {
     use clap::{App, Arg, SubCommand};
 
-    let app = App::new("bag-extract")
-        .subcommand(
-            SubCommand::with_name("generate")
-                .about("extract postcode <-> location data from inspireadressen")
-                .arg(
-                    Arg::with_name("SOURCE_DIR")
-                        .short("s")
-                        .long("source")
-                        .help("Path of the input directory")
-                        .default_value("/home/folkertdev/Downloads/inspire/foo"),
-                ),
-        )
-        .subcommand(
-            SubCommand::with_name("lookup")
-                .about("lookup postcodes close to a coordinate")
-                .arg(
-                    Arg::with_name("SOURCE_DIR")
-                        .short("s")
-                        .long("source")
-                        .help("Path of the input directory")
-                        .default_value("/home/folkertdev/Downloads/inspire/foo"),
-                ),
-        );
+    let app = App::new("bag-extract").subcommand(
+        SubCommand::with_name("generate")
+            .about("extract postcode <-> location data from inspireadressen")
+            .arg(
+                Arg::with_name("SOURCE_DIR")
+                    .short("s")
+                    .long("source")
+                    .help("Path of the input directory")
+                    .default_value("/home/folkertdev/Downloads/inspire"),
+            )
+            .arg(
+                Arg::with_name("HOST")
+                    .long("host")
+                    .help("database host")
+                    .default_value("localhost"),
+            )
+            .arg(
+                Arg::with_name("USER")
+                    .long("user")
+                    .help("database user")
+                    .default_value("tgbag"),
+            )
+            .arg(
+                Arg::with_name("PASSWORD")
+                    .long("password")
+                    .help("database password")
+                    .default_value("tgbag"),
+            )
+            .arg(
+                Arg::with_name("DBNAME")
+                    .long("dbname")
+                    .help("database dbname")
+                    .default_value("bagextract"),
+            ),
+    );
+
+    // format!("host=localhost user=tgbag password=tgbag dbname=bagextract",
 
     let matches = app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("generate") {
         let base_dir = matches.value_of("SOURCE_DIR").unwrap();
 
-        parse_and_persist(&PathBuf::from(base_dir))
-    } else if let Some(matches) = matches.subcommand_matches("lookup") {
-        let base_dir = matches.value_of("SOURCE_DIR").unwrap();
+        let db_credentials = DbCredentials {
+            host: matches.value_of("host").unwrap().to_string(),
+            user: matches.value_of("user").unwrap().to_string(),
+            password: matches.value_of("password").unwrap().to_string(),
+            dbname: matches.value_of("dbname").unwrap().to_string(),
+        };
 
-        let postcodes = extract(&PathBuf::from(base_dir), POINTS, 50.0)?;
-
-        for postcode in postcodes {
-            println!("{}", postcode.to_string());
+        let debug = false;
+        if debug {
+            parse_and_db_debug(&PathBuf::from(base_dir), &db_credentials)
+        } else {
+            parse_and_db(&PathBuf::from(base_dir), &db_credentials)
         }
-
-        Ok(())
     } else {
         unreachable!()
     }
 }
 
-extern crate bagextract;
-
-use bagextract::*;
-
-use bounding_box::{BoundingBox, Point};
-use memory_mapped_slice::MemoryMappedSlice;
-use postcode::Postcode;
-
-fn extract(base_path: &Path, points: &[Point], radius: f32) -> std::io::Result<Vec<Postcode>> {
-    let bounding_boxes = BoundingBoxes::from_file(base_path.with_file_name("postcodes.bin"))?;
-    let postcode_points = Points::from_files(
-        base_path.with_file_name("points.bin"),
-        base_path.with_file_name("slices.bin"),
-    )?;
-
-    let target = work(bounding_boxes, postcode_points, points, radius);
-
-    Ok(target)
-}
-
-/// Parse the VBO and NUM zip files, extract the relevant data, and persist it to disk
-fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
+fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>>> {
     let verblijfsobjecten_path = base_path.with_file_name("9999VBO08102021.zip");
     let nummeraanduidingen_path = base_path.with_file_name("9999NUM08102021.zip");
 
-    let mut bounding_boxes = vec![bounding_box::INFINITE; 1 << 24];
     let mut points_per_postcode = vec![Vec::new(); 1 << 24];
 
     let vs = parse_vbo::parse(&verblijfsobjecten_path);
@@ -99,7 +101,6 @@ fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
                     Some(postcode) => {
                         let index = postcode.as_u32() as usize;
 
-                        bounding_boxes[index].extend_with(point);
                         points_per_postcode[index].push(point);
                     }
                 }
@@ -108,102 +109,84 @@ fn parse_and_persist(base_path: &Path) -> std::io::Result<()> {
         _ => panic!(),
     }
 
-    BoundingBoxes::create_file(base_path.with_file_name("postcodes.bin"), &bounding_boxes)?;
+    Ok(points_per_postcode)
+}
 
-    Points::create_files(
-        base_path.with_file_name("points.bin"),
-        base_path.with_file_name("slices.bin"),
-        points_per_postcode,
-    )?;
+fn parse_and_db(base_path: &Path, db_credentials: &DbCredentials) -> std::io::Result<()> {
+    let points_per_postcode = parse_points_per_postcode(base_path)?;
+    let it = points_per_postcode
+        .iter()
+        .enumerate()
+        .map(|(i, points)| (Postcode::from_index(i), points.as_slice()));
+
+    populate_database(db_credentials, it)?;
 
     Ok(())
 }
 
-fn work(
-    bounding_boxes: BoundingBoxes,
-    points_per_postcode: Points,
-    input: &[Point],
-    radius: f32,
-) -> Vec<Postcode> {
-    let target_bounding_boxes: Vec<_> = input
-        .iter()
-        .map(|point| BoundingBox::around_point(*point, radius))
-        .collect();
+/// Parse the VBO and NUM zip files, extract the relevant data, and persist it to disk
+fn parse_and_db_debug(base_path: &Path, db_credentials: &DbCredentials) -> std::io::Result<()> {
+    if false {
+        let points_per_postcode = parse_points_per_postcode(base_path)?;
 
-    let bounding_boxes = bounding_boxes.bounding_boxes.as_slice();
+        Points::create_files(
+            base_path.with_file_name("points-28992.bin"),
+            base_path.with_file_name("slices-28992.bin"),
+            points_per_postcode,
+        )?;
+    }
 
-    // evaluate in parallel if there are many points
-    let mut result: Vec<_> = if input.len() <= 64 {
-        bounding_boxes
-            .iter()
-            .enumerate()
-            .map(|(i, bounding_box)| {
-                check_against_address_locations(
-                    i,
-                    bounding_box,
-                    input,
-                    &target_bounding_boxes,
-                    radius,
-                    &points_per_postcode,
-                )
-            })
-            .flatten()
-            .collect()
-    } else {
-        use rayon::prelude::*;
+    let points_per_postcode = Points::from_files(
+        base_path.with_file_name("points-28992.bin"),
+        base_path.with_file_name("slices-28992.bin"),
+    )?;
 
-        bounding_boxes
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, bounding_box)| {
-                check_against_address_locations(
-                    i,
-                    bounding_box,
-                    input,
-                    &target_bounding_boxes,
-                    radius,
-                    &points_per_postcode,
-                )
-            })
-            .flatten()
-            .collect()
-    };
+    let it = points_per_postcode.iterate_postcodes();
 
-    result.sort();
+    populate_database(db_credentials, it)?;
 
-    result
+    Ok(())
 }
 
-fn check_against_address_locations(
-    i: usize,
-    bounding_box: &BoundingBox,
-    input: &[Point],
-    target_bounding_boxes: &[BoundingBox],
-    radius: f32,
-    points_per_postcode: &Points,
-) -> Option<Postcode> {
-    for (point, needle) in input.iter().zip(target_bounding_boxes.iter()) {
-        if bounding_box.intersects_with(*needle) {
-            let postcode = Postcode::from_u32(i as u32);
+struct DbCredentials {
+    host: String,
+    user: String,
+    password: String,
+    dbname: String,
+}
 
-            let points = points_per_postcode.for_postcode(postcode);
+fn populate_database<'a, I>(db_credentials: &DbCredentials, data: I) -> std::io::Result<()>
+where
+    I: Iterator<Item = (Postcode, &'a [Point])>,
+{
+    use postgres::{Client, NoTls};
 
-            let close_enough = points.iter().any(|p| {
-                use geoutils::Location;
-                let distance = geoutils::Distance::from_meters(radius);
-                let a = Location::new(p.x, p.y);
-                let b = Location::new(point.x, point.y);
+    let arguments = &format!(
+        "host={} user={} password={} dbname={}",
+        db_credentials.host, db_credentials.user, db_credentials.password, db_credentials.dbname
+    );
 
-                a.is_in_circle(&b, distance).unwrap()
-            });
+    let mut client = Client::connect(arguments, NoTls).unwrap();
 
-            if close_enough {
-                return Some(postcode);
+    println!("Inserting data into adressen_28992");
+
+    let mut writer = client.copy_in("COPY adressen_28992 FROM stdin").unwrap();
+
+    for (postcode, points) in data {
+        for point in points.iter() {
+            {
+                use std::io::Write;
+
+                writeln!(writer, "POINT({} {})\t{}", point.x, point.y, postcode)?;
             }
         }
     }
 
-    None
+    let rows_written = writer.finish().unwrap();
+
+    println!("Done inserting data, inserted {} rows", rows_written);
+
+    Ok(())
 }
 
 /// Turn a `&[T]` into a `&[u8]` and write it to a file. Clearly that only works
@@ -218,50 +201,6 @@ where
     let bytes: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const _, byte_width) };
 
     std::fs::write(path, bytes)
-}
-
-struct BoundingBoxes {
-    bounding_boxes: MemoryMappedSlice<BoundingBox>,
-}
-
-impl BoundingBoxes {
-    fn from_file<P>(bin_path: P) -> std::io::Result<Self>
-    where
-        P: AsRef<Path>,
-    {
-        let index = Self {
-            bounding_boxes: MemoryMappedSlice::from_file(bin_path)?,
-        };
-
-        Ok(index)
-    }
-
-    fn create_file<P>(bin_path: P, data: &[BoundingBox]) -> std::io::Result<()>
-    where
-        P: AsRef<Path>,
-    {
-        write_slice_to_file(bin_path, data)
-    }
-
-    fn for_postcode(&self, postcode: Postcode) -> BoundingBox {
-        let index = postcode.as_u32() as usize;
-
-        self.bounding_boxes.as_slice()[index]
-    }
-
-    fn postcodes_that_intersect_with(&self, needle: BoundingBox) -> Vec<Postcode> {
-        let mut result = Vec::with_capacity(64);
-
-        let it = self.bounding_boxes.as_slice().iter().enumerate();
-        for (i, bounding_box) in it {
-            if bounding_box.intersects_with(needle) {
-                let postcode = Postcode::from_u32(i as u32);
-                result.push(postcode);
-            }
-        }
-
-        result
-    }
 }
 
 struct Points {
@@ -308,14 +247,17 @@ impl Points {
         Ok(())
     }
 
-    fn for_postcode(&self, postcode: Postcode) -> &[Point] {
+    fn iterate_postcodes(&self) -> impl Iterator<Item = (Postcode, &[Point])> {
         let slices = self.slices.as_slice();
         let points = self.points.as_slice();
 
-        let index = postcode.as_u32() as usize;
-        let (start, length) = slices[index];
+        (0..(1 << 24)).map(|index| {
+            let postcode = Postcode::from_index(index);
 
-        &points[start as usize..][..length as usize]
+            let (start, length) = slices[index];
+
+            (postcode, &points[start as usize..][..length as usize])
+        })
     }
 }
 
@@ -338,151 +280,85 @@ const POINTS: &[Point] = &[
     Point::new(5.30626765415776, 52.162948264751),
 ];
 
-const MORE_POINTS: &[Point] = &[
-    Point::new(5.67965488866478, 52.1405643787047),
-    Point::new(5.58824751005124, 52.1424825685008),
-    Point::new(6.69765391634653, 52.9535333196805),
-    Point::new(5.58196224851979, 52.1397291700453),
-    Point::new(5.58646413242308, 52.1454965669182),
-    Point::new(5.69526770038764, 52.1485969543213),
-    Point::new(5.59397927301206, 52.1359522864284),
-    Point::new(5.60797523171513, 52.1748094047371),
-    Point::new(5.62780379850877, 52.1499673367495),
-    Point::new(5.61531544977061, 52.165092066236),
-    Point::new(5.67965488866478, 52.1405643787047),
-    Point::new(5.58824751005124, 52.1424825685008),
-    Point::new(6.69765391634653, 52.9535333196805),
-    Point::new(5.58196224851979, 52.1397291700453),
-    Point::new(5.58646413242308, 52.1454965669182),
-    Point::new(5.69526770038764, 52.1485969543213),
-    Point::new(5.59397927301206, 52.1359522864284),
-    Point::new(5.60797523171513, 52.1748094047371),
-    Point::new(5.62780379850877, 52.1499673367495),
-    Point::new(5.61531544977061, 52.165092066236),
-    Point::new(4.75043861004033, 52.2660314081271),
-    Point::new(6.39971294118668, 51.9201243809166),
-    Point::new(6.46930090368336, 51.8867760218735),
-    Point::new(4.74537091799729, 52.6322889012989),
-    Point::new(6.40750223896834, 51.90077531953),
-    Point::new(6.54806454999534, 52.0703497746592),
-    Point::new(6.61128490091496, 52.1296296789618),
-    Point::new(5.3758568966009, 51.9031114241937),
-    Point::new(4.75043861004033, 52.2660314081271),
-    Point::new(6.39971294118668, 51.9201243809166),
-    Point::new(6.46930090368336, 51.8867760218735),
-    Point::new(4.74537091799729, 52.6322889012989),
-    Point::new(6.40750223896834, 51.90077531953),
-    Point::new(6.54806454999534, 52.0703497746592),
-    Point::new(6.61128490091496, 52.1296296789618),
-    Point::new(5.3758568966009, 51.9031114241937),
-    Point::new(4.43880552703027, 51.5135759144196),
-    Point::new(4.37259199039176, 51.4931533285736),
-    Point::new(4.34405636184264, 51.5321333641461),
-    Point::new(4.48849790929674, 51.5460307075546),
-    Point::new(5.22647034835451, 51.9553048864381),
-    Point::new(5.22078729868626, 51.9618044590545),
-    Point::new(4.95827553487323, 51.5171062797425),
-    Point::new(3.82540879844178, 51.4989831750745),
-    Point::new(5.22312217018264, 51.955782574798),
-    Point::new(4.89733153491227, 52.3747207614601),
-    Point::new(4.43880552703027, 51.5135759144196),
-    Point::new(4.37259199039176, 51.4931533285736),
-    Point::new(4.34405636184264, 51.5321333641461),
-    Point::new(4.48849790929674, 51.5460307075546),
-    Point::new(5.22647034835451, 51.9553048864381),
-    Point::new(5.22078729868626, 51.9618044590545),
-    Point::new(4.95827553487323, 51.5171062797425),
-    Point::new(3.82540879844178, 51.4989831750745),
-    Point::new(5.22312217018264, 51.955782574798),
-    Point::new(4.89733153491227, 52.3747207614601),
-    Point::new(6.15951072725779, 53.4780848844606),
-    Point::new(6.15269767332427, 53.4879220760491),
-    Point::new(6.17782463216233, 53.4788376836731),
-    Point::new(6.6659394247382, 52.3548651990337),
-    Point::new(5.90375161403887, 51.9812708553279),
-    Point::new(5.91258225566612, 51.9816154027334),
-    Point::new(4.9006543556654, 52.3756961455129),
-    Point::new(4.77851372406812, 51.5947264653114),
-    Point::new(4.89377254986862, 52.3593459728095),
-    Point::new(5.90940505555768, 51.9683680361103),
-    Point::new(6.15951072725779, 53.4780848844606),
-    Point::new(6.15269767332427, 53.4879220760491),
-    Point::new(6.17782463216233, 53.4788376836731),
-    Point::new(6.6659394247382, 52.3548651990337),
-    Point::new(5.90375161403887, 51.9812708553279),
-    Point::new(5.91258225566612, 51.9816154027334),
-    Point::new(4.9006543556654, 52.3756961455129),
-    Point::new(4.77851372406812, 51.5947264653114),
-    Point::new(4.89377254986862, 52.3593459728095),
-    Point::new(5.90940505555768, 51.9683680361103),
-    Point::new(4.89349785374828, 52.3774371006303),
-    Point::new(4.88442544100964, 52.364169007212),
-    Point::new(4.90031091474093, 52.3735376855662),
-    Point::new(4.92902396945904, 52.3631546417713),
-    Point::new(4.93573985466178, 52.4000208946646),
-    Point::new(4.88856934040211, 52.3690668664935),
-    Point::new(4.88347841305744, 52.3648210857948),
-    Point::new(4.90033550690364, 52.3686215106702),
-    Point::new(4.93875169183112, 52.372458199188),
-    Point::new(4.90354703135262, 52.3514860928239),
-    Point::new(4.89349785374828, 52.3774371006303),
-    Point::new(4.88442544100964, 52.364169007212),
-    Point::new(4.90031091474093, 52.3735376855662),
-    Point::new(4.92902396945904, 52.3631546417713),
-    Point::new(4.93573985466178, 52.4000208946646),
-    Point::new(4.88856934040211, 52.3690668664935),
-    Point::new(4.88347841305744, 52.3648210857948),
-    Point::new(4.90033550690364, 52.3686215106702),
-    Point::new(4.93875169183112, 52.372458199188),
-    Point::new(4.90354703135262, 52.3514860928239),
-    Point::new(4.9143904967743, 51.5966343198703),
-    Point::new(4.93651487135396, 51.5454146300038),
-    Point::new(5.93509125724059, 53.2147861700208),
-    Point::new(6.11938290137999, 53.1815920721668),
-    Point::new(5.93820880327122, 53.2098136051886),
-    Point::new(5.48813368120719, 51.9580298901076),
-    Point::new(4.9143904967743, 51.5966343198703),
-    Point::new(4.93651487135396, 51.5454146300038),
-    Point::new(5.93509125724059, 53.2147861700208),
-    Point::new(6.11938290137999, 53.1815920721668),
-    Point::new(5.93820880327122, 53.2098136051886),
-    Point::new(5.48813368120719, 51.9580298901076),
-    Point::new(5.68980113215359, 52.1870346531975),
-    Point::new(5.59896028654163, 52.1753170399278),
-    Point::new(5.50838406022866, 52.1213352274164),
-    Point::new(5.65062532269601, 52.2032526676245),
-    Point::new(5.72596522654479, 52.22778203164),
-    Point::new(5.49877983325176, 52.183251003256),
-    Point::new(5.83931366445763, 51.1622768181272),
-    Point::new(5.64415821020799, 52.1930987395766),
-    Point::new(5.68469042346532, 51.9689336365007),
-    Point::new(5.65734268944191, 52.1805972102343),
-    Point::new(5.68980113215359, 52.1870346531975),
-    Point::new(5.59896028654163, 52.1753170399278),
-    Point::new(5.50838406022866, 52.1213352274164),
-    Point::new(5.65062532269601, 52.2032526676245),
-    Point::new(5.72596522654479, 52.22778203164),
-    Point::new(5.49877983325176, 52.183251003256),
-    Point::new(5.83931366445763, 51.1622768181272),
-    Point::new(5.64415821020799, 52.1930987395766),
-    Point::new(5.68469042346532, 51.9689336365007),
-    Point::new(5.65734268944191, 52.1805972102343),
-    Point::new(4.09254655513546, 51.2839185233738),
-    Point::new(5.99372343576583, 52.934683731571),
-    Point::new(4.93508416007958, 52.4095632526865),
-    Point::new(4.91004833813961, 52.3897821169503),
-    Point::new(5.9219190320784, 51.9834661478072),
-    Point::new(5.91305387241254, 51.9829541388098),
-    Point::new(4.9772792357077, 52.2950157350758),
-    Point::new(4.90050593001279, 52.3758393387278),
-    Point::new(6.31724563444831, 52.0403453535578),
-    Point::new(4.09254655513546, 51.2839185233738),
-    Point::new(5.99372343576583, 52.934683731571),
-    Point::new(4.93508416007958, 52.4095632526865),
-    Point::new(4.91004833813961, 52.3897821169503),
-    Point::new(5.9219190320784, 51.9834661478072),
-    Point::new(5.91305387241254, 51.9829541388098),
-    Point::new(4.9772792357077, 52.2950157350758),
-    Point::new(4.90050593001279, 52.3758393387278),
-    Point::new(6.31724563444831, 52.0403453535578),
-];
+#[cfg(test)]
+mod dbtest {
+    use postgres::{Client, NoTls};
+
+    fn test_helper(points: &[(f64, f64)]) -> Vec<String> {
+        let mut client = Client::connect(
+            "host=localhost user=tgbag password=tgbag dbname=bagextract",
+            NoTls,
+        )
+        .unwrap();
+
+        let mut buf = String::new();
+        buf.push_str("SRID=4326;MULTIPOINT(");
+        let mut it = points.iter().peekable();
+        while let Some((x, y)) = it.next() {
+            use std::fmt::Write;
+            write!(buf, "{} {}", *x as f32, *y as f32).unwrap();
+
+            if it.peek().is_some() {
+                buf.push(',');
+            }
+        }
+        buf.push(')');
+
+        let mut result = Vec::new();
+
+        for (x, y) in points {
+            let query = "SELECT postcode FROM adressen WHERE ST_DWithin(ST_POINT($1, $2)::geography, point::geography, 50, false)";
+            for row in client.query(query, &[x, y]).unwrap() {
+                let postcode: &str = row.get(0);
+
+                // println!("\"{}\",", postcode);
+                result.push(postcode.to_string());
+            }
+        }
+
+        result.sort();
+        result.dedup();
+
+        result
+    }
+
+    #[test]
+    fn foo() {
+        let points = &[
+            (6.47821242976357, 51.9381148436214),
+            (5.05615993640658, 52.6429354790004),
+            (6.24815916803166, 51.8713990299342),
+            (4.89957348912126, 52.3724920772592),
+            (4.86766732715532, 52.3609509416471),
+            (4.85655672329772, 52.3644158693014),
+            (4.88601772166714, 52.3622793475881),
+            (4.8735250602509, 52.3862949084857),
+            (4.82016343709478, 52.311691604278),
+            (4.87981345683438, 52.3733257971681),
+            (6.47821242976357, 51.9381148436214),
+            (5.05615993640658, 52.6429354790004),
+            (6.24815916803166, 51.8713990299342),
+            (4.89957348912126, 52.3724920772592),
+            (4.86766732715532, 52.3609509416471),
+            (4.85655672329772, 52.3644158693014),
+            (4.88601772166714, 52.3622793475881),
+            (4.8735250602509, 52.3862949084857),
+            (4.82016343709478, 52.311691604278),
+            (4.87981345683438, 52.3733257971681),
+        ];
+
+        let result = test_helper(points);
+
+        let expected = &[
+            "1012BS", "1012BV", "1012CR", "1012CS", "1012CT", "1012DC", "1014DB", "1016KX",
+            "1016KZ", "1016LL", "1016LM", "1016LT", "1016LV", "1016NE", "1016NG", "1016NH",
+            "1016NX", "1016PC", "1017NP", "1017NR", "1017RA", "1017RB", "1017RD", "1017RL",
+            "1017RM", "1017RS", "1017RT", "1054DW", "1054HW", "1054JC", "1054JD", "1054JH",
+            "1054JJ", "1057DT", "1057DV", "1057EB", "1057EC", "1057VZ", "1182DB", "1621HE",
+            "1621HP", "1621HR", "1621JC", "1621JK", "7041AV", "7041AW", "7041SR", "7041SX",
+            "7051HR",
+        ] as &[_];
+
+        assert_eq!(expected, &result);
+    }
+}

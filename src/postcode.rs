@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Postcode {
     bytes: [u8; 3],
@@ -75,10 +77,10 @@ impl Postcode {
     }
 }
 
-impl ToString for Postcode {
-    fn to_string(&self) -> String {
+impl Display for Postcode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (digits, letter1, letter2) = self.components();
-        format!("{}{}{}", digits, letter1 as char, letter2 as char)
+        write!(f, "{}{}{}", digits, letter1 as char, letter2 as char)
     }
 }
 

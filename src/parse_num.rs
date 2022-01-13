@@ -31,6 +31,8 @@ pub fn parse(path: &Path) -> std::io::Result<Postcodes> {
     let archive = zip::ZipArchive::new(file).unwrap();
 
     let range = 0..archive.len();
+    // let range = 0..10;
+
     let result = parse_step(path, range.start, range.end)?;
 
     Ok(result)
