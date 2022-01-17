@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
             dbname: matches.value_of("DBNAME").unwrap().to_string(),
         };
 
-        let debug = true;
+        let debug = false;
         if debug {
             parse_and_db_debug(&PathBuf::from(base_dir), &db_credentials)
         } else {
