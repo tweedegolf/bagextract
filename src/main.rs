@@ -48,8 +48,6 @@ fn main() -> std::io::Result<()> {
             ),
     );
 
-    // format!("host=localhost user=tgbag password=tgbag dbname=bagextract",
-
     let matches = app.get_matches();
 
     if let Some(matches) = matches.subcommand_matches("generate") {
@@ -74,8 +72,6 @@ fn main() -> std::io::Result<()> {
 }
 
 fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>>> {
-    // let verblijfsobjecten_path = base_path.with_file_name("9999VBO08102021.zip");
-    // let nummeraanduidingen_path = base_path.with_file_name("9999NUM08102021.zip");
     let verblijfsobjecten_path = base_path.join("vbo.zip");
     let nummeraanduidingen_path = base_path.join("num.zip");
 
@@ -108,8 +104,8 @@ fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>
                 }
             }
         }
-        (Err(e), _) => panic!("verblijfsobjecten {:?}", e),
-        (_, Err(e)) => panic!("nummeraanduidingen {:?}", e),
+        (Err(e), _) => panic!("Error in verblijfsobjecten {:?}", e),
+        (_, Err(e)) => panic!("Error in nummeraanduidingen {:?}", e),
     }
 
     Ok(points_per_postcode)
