@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
             dbname: matches.value_of("DBNAME").unwrap().to_string(),
         };
 
-        let debug = false;
+        let debug = matches!(std::env::var("DEBUG"), Ok(string) if string == "1");
 
         println!("Starting bag extraction with debug = {:?}", &debug);
 
