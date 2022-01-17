@@ -61,19 +61,25 @@ fn main() -> std::io::Result<()> {
         };
 
         let debug = false;
+
+        println!("Starting bag extraction with debug = {:?}", &debug);
+
         if debug {
             parse_and_db_debug(&PathBuf::from(base_dir), &db_credentials)
         } else {
             parse_and_db(&PathBuf::from(base_dir), &db_credentials)
         }
     } else {
-        unreachable!()
+        unreachable!("invalid subcommand. Expected on of `generate`")
     }
 }
 
 fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>>> {
     let verblijfsobjecten_path = base_path.join("vbo.zip");
     let nummeraanduidingen_path = base_path.join("num.zip");
+
+    println!("num.zip location: {:?}", &nummeraanduidingen_path);
+    println!("vbo.zip location: {:?}", &verblijfsobjecten_path);
 
     let mut points_per_postcode = vec![Vec::new(); 1 << 24];
 
@@ -107,6 +113,11 @@ fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>
         (Err(e), _) => panic!("Error in verblijfsobjecten {:?}", e),
         (_, Err(e)) => panic!("Error in nummeraanduidingen {:?}", e),
     }
+
+    println!(
+        "got points_per_postcode, length = {}",
+        points_per_postcode.len()
+    );
 
     Ok(points_per_postcode)
 }
