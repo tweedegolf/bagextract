@@ -5,8 +5,8 @@ extern crate bagextract;
 
 use bagextract::*;
 
-use bounding_box::Point;
 use memory_mapped_slice::MemoryMappedSlice;
+use point::Point;
 use postcode::Postcode;
 
 fn main() -> std::io::Result<()> {
@@ -56,13 +56,13 @@ fn main() -> std::io::Result<()> {
         let base_dir = matches.value_of("SOURCE_DIR").unwrap();
 
         let db_credentials = DbCredentials {
-            host: matches.value_of("host").unwrap().to_string(),
-            user: matches.value_of("user").unwrap().to_string(),
-            password: matches.value_of("password").unwrap().to_string(),
-            dbname: matches.value_of("dbname").unwrap().to_string(),
+            host: matches.value_of("HOST").unwrap().to_string(),
+            user: matches.value_of("USER").unwrap().to_string(),
+            password: matches.value_of("PASSWORD").unwrap().to_string(),
+            dbname: matches.value_of("DBNAME").unwrap().to_string(),
         };
 
-        let debug = false;
+        let debug = true;
         if debug {
             parse_and_db_debug(&PathBuf::from(base_dir), &db_credentials)
         } else {
@@ -74,8 +74,10 @@ fn main() -> std::io::Result<()> {
 }
 
 fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>>> {
-    let verblijfsobjecten_path = base_path.with_file_name("9999VBO08102021.zip");
-    let nummeraanduidingen_path = base_path.with_file_name("9999NUM08102021.zip");
+    // let verblijfsobjecten_path = base_path.with_file_name("9999VBO08102021.zip");
+    // let nummeraanduidingen_path = base_path.with_file_name("9999NUM08102021.zip");
+    let verblijfsobjecten_path = base_path.join("vbo.zip");
+    let nummeraanduidingen_path = base_path.join("num.zip");
 
     let mut points_per_postcode = vec![Vec::new(); 1 << 24];
 
@@ -106,7 +108,8 @@ fn parse_points_per_postcode(base_path: &Path) -> std::io::Result<Vec<Vec<Point>
                 }
             }
         }
-        _ => panic!(),
+        (Err(e), _) => panic!("verblijfsobjecten {:?}", e),
+        (_, Err(e)) => panic!("nummeraanduidingen {:?}", e),
     }
 
     Ok(points_per_postcode)
@@ -117,7 +120,8 @@ fn parse_and_db(base_path: &Path, db_credentials: &DbCredentials) -> std::io::Re
     let it = points_per_postcode
         .iter()
         .enumerate()
-        .map(|(i, points)| (Postcode::from_index(i), points.as_slice()));
+        .map(|(i, points)| (Postcode::from_index(i), points.as_slice()))
+        .skip(Postcode::MIN.as_index());
 
     populate_database(db_credentials, it)?;
 
@@ -130,15 +134,15 @@ fn parse_and_db_debug(base_path: &Path, db_credentials: &DbCredentials) -> std::
         let points_per_postcode = parse_points_per_postcode(base_path)?;
 
         Points::create_files(
-            base_path.with_file_name("points-28992.bin"),
-            base_path.with_file_name("slices-28992.bin"),
+            base_path.join("points-28992.bin"),
+            base_path.join("slices-28992.bin"),
             points_per_postcode,
         )?;
     }
 
     let points_per_postcode = Points::from_files(
-        base_path.with_file_name("points-28992.bin"),
-        base_path.with_file_name("slices-28992.bin"),
+        base_path.join("points-28992.bin"),
+        base_path.join("slices-28992.bin"),
     )?;
 
     let it = points_per_postcode.iterate_postcodes();
@@ -171,8 +175,11 @@ where
     println!("Inserting data into adressen_28992");
 
     let mut writer = client.copy_in("COPY adressen_28992 FROM stdin").unwrap();
-
     for (postcode, points) in data {
+        if postcode > Postcode::MAX {
+            break;
+        }
+
         for point in points.iter() {
             {
                 use std::io::Write;

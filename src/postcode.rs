@@ -18,6 +18,9 @@ impl Ord for Postcode {
 }
 
 impl Postcode {
+    pub const MIN: Self = Self::new(1000, b'A', b'A');
+    pub const MAX: Self = Self::new(9999, b'Z', b'Z');
+
     #[inline]
     pub const fn new(digits: u16, letter1: u8, letter2: u8) -> Self {
         let digits = digits as u32;

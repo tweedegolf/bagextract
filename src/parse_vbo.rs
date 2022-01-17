@@ -1,12 +1,11 @@
 // Parse Verblijfsobject zip file
-use serde::de::Deserialize;
 use zip::ZipArchive;
 
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use crate::bounding_box::Point;
+use crate::point::Point;
 
 #[derive(Debug, Default)]
 pub struct Verblijfsobjecten {
@@ -34,7 +33,6 @@ pub fn parse(path: &Path) -> std::io::Result<Verblijfsobjecten> {
     let archive = zip::ZipArchive::new(file).unwrap();
 
     let range = 0..archive.len();
-    // let range = 0..10;
 
     let result = parse_step(path, range.start, range.end)?;
 
@@ -104,7 +102,6 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
                 if let b"bag_LVC:Verblijfsobject" = e.name() {
                     let object = parse_manual_help(&mut reader, &mut buf)?;
                     let geopunt = object.geopunt;
-                    // let (y, x) = rijksdriehoek::rijksdriehoek_to_wgs84(geopunt.x, geopunt.y);
                     let (x, y) = (geopunt.x, geopunt.y);
                     let point = Point::new(x as f32, y as f32);
                     result.push(object.identificatie, point);
@@ -234,37 +231,6 @@ impl std::str::FromStr for Geopunt {
     }
 }
 
-/// Custom serde deserializer so we don't create an intermediate string
-impl<'de> serde::de::Deserialize<'de> for Geopunt {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use std::fmt;
-
-        struct FieldVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
-            type Value = Geopunt;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a postcode")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Geopunt, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::str::FromStr;
-
-                Ok(Geopunt::from_str(value).unwrap())
-            }
-        }
-
-        deserializer.deserialize_str(FieldVisitor)
-    }
-}
-
 #[derive(Debug)]
 struct PosList {
     centroid: (f64, f64),
@@ -288,46 +254,22 @@ impl std::str::FromStr for PosList {
             points.push((x, y));
         }
 
-        let line_string = geo::LineString::from(points);
+        let point = centroid(&points);
 
-        let polygon = geo::Polygon::new(line_string, vec![]);
-
-        use geo::algorithm::centroid::Centroid;
-        let centroid = polygon.centroid().unwrap();
-
-        let point = (centroid.x(), centroid.y());
         Ok(PosList { centroid: point })
     }
 }
 
-impl<'de> Deserialize<'de> for PosList {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use std::fmt;
+fn centroid(points: &[(f64, f64)]) -> (f64, f64) {
+    let mut x = 0.0;
+    let mut y = 0.0;
 
-        struct FieldVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for FieldVisitor {
-            type Value = PosList;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a postcode")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<PosList, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::str::FromStr;
-
-                Ok(PosList::from_str(value).unwrap())
-            }
-        }
-
-        deserializer.deserialize_str(FieldVisitor)
+    for (p, q) in points {
+        x += p;
+        y += q;
     }
+
+    (x / points.len() as f64, y / points.len() as f64)
 }
 
 #[cfg(test)]
