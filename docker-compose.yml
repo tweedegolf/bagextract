@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+    postgis-db:
+        image: docker.tgrep.nl/docker/postgres:12
+        environment:
+            POSTGRES_USER: tgbag
+            POSTGRES_PASSWORD: tgbag
+            TZ: Europe/Amsterdam
+            POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:5432:5432"]
+        volumes:
+            - ".:/data"
+        networks: [default]
+
+networks:
+    default: ~
