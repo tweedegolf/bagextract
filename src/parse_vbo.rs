@@ -99,7 +99,7 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                if let b"bag_LVC:Verblijfsobject" = e.name() {
+                if let b"Objecten:Verblijfsobject" = e.name() {
                     let object = parse_manual_help(&mut reader, &mut buf)?;
                     let geopunt = object.geopunt;
                     let (x, y) = (geopunt.x, geopunt.y);
@@ -147,8 +147,8 @@ fn parse_manual_help<B: std::io::BufRead>(
     loop {
         match reader.read_event(buf) {
             Ok(Event::Start(ref e)) => match e.name() {
-                b"bag_LVC:hoofdadres" => state = State::Hoofdadres,
-                b"bag_LVC:identificatie" => {
+                b"Objecten:heeftAlsHoofdadres" => state = State::Hoofdadres,
+                b"Objecten:identificatie" => {
                     if let State::Hoofdadres = state {
                         state = State::Identificatie
                     }
@@ -158,7 +158,7 @@ fn parse_manual_help<B: std::io::BufRead>(
                 _ => (),
             },
             Ok(Event::End(ref e)) => {
-                if let b"bag_LVC:Verblijfsobject" = e.name() {
+                if let b"Objecten:Verblijfsobject" = e.name() {
                     match (identificatie, geopunt) {
                         (Some(identificatie), Some(geopunt)) => {
                             return Some(Verblijfsobject {

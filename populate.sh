@@ -12,7 +12,7 @@ mkdir -p $data
 ## download bag
 if [ ! -f $data/inspireadressen.zip ]; then
     # wget -q -O $data/inspireadressen.zip http://geodata.nationaalgeoregister.nl/inspireadressen/extract/inspireadressen.zip &
-    curl -L -o $data/inspireadressen.zip http://geodata.nationaalgeoregister.nl/inspireadressen/extract/inspireadressen.zip &
+    curl -L -o $data/inspireadressen.zip https://service.pdok.nl/kadaster/adressen/atom/v1_0/downloads/lvbag-extract-nl.zip &
 fi
 
 # create db

@@ -104,7 +104,7 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Postcodes) -> O
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                if let b"Object:Nummeraanduiding" = e.name() {
                     let aanduiding = parse_manual_help(&mut reader, &mut buf)?;
                     if let Some(postcode) = aanduiding.postcode {
                         result.push(aanduiding.identificatie, postcode);
@@ -142,12 +142,12 @@ fn parse_manual_help<B: std::io::BufRead>(
     loop {
         match reader.read_event(buf) {
             Ok(Event::Start(ref e)) => match e.name() {
-                b"bag_LVC:identificatie" => state = State::Identificatie,
-                b"bag_LVC:postcode" => state = State::Postcode,
+                b"Objecten:identificatie" => state = State::Identificatie,
+                b"Objecten:postcode" => state = State::Postcode,
                 _ => (),
             },
             Ok(Event::End(ref e)) => {
-                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                if let b"Objecten:Nummeraanduiding" = e.name() {
                     match identificatie {
                         Some(identificatie) => {
                             return Some(Nummeraanduiding {
