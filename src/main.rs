@@ -182,6 +182,7 @@ where
     println!("Inserting data into adressen_28992");
 
     let mut writer = client.copy_in("COPY adressen_28992 FROM stdin").unwrap();
+
     for (postcode, points) in data {
         if postcode > Postcode::MAX {
             break;
