@@ -45,10 +45,10 @@ Then for each retained postcode, we check that the target point is close enough 
 
 ## Preparing the data
 
-We use data from `inspireadressen.zip`:
+We use data from `lvbag-extract-nl.zip`:
 
 ```shell
-wget -q -O /data/inspireadressen.zip http://geodata.nationaalgeoregister.nl/inspireadressen/extract/inspireadressen.zip
+wget -q -O /data/lvbag-extract-nl.zip http://geodata.nationaalgeoregister.nl/inspireadressen/extract/lvbag-extract-nl.zip
 ```
 
 In particular we need two files:

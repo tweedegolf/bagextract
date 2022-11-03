@@ -99,7 +99,7 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Verblijfsobject
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                if let b"bag_LVC:Verblijfsobject" = e.name() {
+                if let b"Objecten:Verblijfsobject" = e.name() {
                     let object = parse_manual_help(&mut reader, &mut buf)?;
                     let geopunt = object.geopunt;
                     let (x, y) = (geopunt.x, geopunt.y);
@@ -147,8 +147,8 @@ fn parse_manual_help<B: std::io::BufRead>(
     loop {
         match reader.read_event(buf) {
             Ok(Event::Start(ref e)) => match e.name() {
-                b"bag_LVC:hoofdadres" => state = State::Hoofdadres,
-                b"bag_LVC:identificatie" => {
+                b"Objecten:heeftAlsHoofdadres" => state = State::Hoofdadres,
+                b"Objecten-ref:NummeraanduidingRef" => {
                     if let State::Hoofdadres = state {
                         state = State::Identificatie
                     }
@@ -158,7 +158,7 @@ fn parse_manual_help<B: std::io::BufRead>(
                 _ => (),
             },
             Ok(Event::End(ref e)) => {
-                if let b"bag_LVC:Verblijfsobject" = e.name() {
+                if let b"Objecten:Verblijfsobject" = e.name() {
                     match (identificatie, geopunt) {
                         (Some(identificatie), Some(geopunt)) => {
                             return Some(Verblijfsobject {
@@ -310,10 +310,7 @@ mod test {
     #[test]
     fn parse_object_manual() {
         let input = r#"
-<bag_LVC:Verblijfsobject><bag_LVC:gerelateerdeAdressen><bag_LVC:hoofdadres><bag_LVC:identificatie>0003200000134068</bag_LVC:identificatie></bag_LVC:hoofdadres></bag_LVC:gerelateerdeAdressen><bag_LVC:identificatie>0003010000125996</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:verblijfsobjectGeometrie><gml:Point srsName="urn:ogc:def:crs:EPSG::28992">
-  <gml:pos>252908.632 593657.117 0.0</gml:pos>
-  </gml:Point></bag_LVC:verblijfsobjectGeometrie><bag_LVC:gebruiksdoelVerblijfsobject>kantoorfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>162</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2013031300000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2016050300000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20130313</bagtype:documentdatum><bagtype:documentnummer>A2013-WFS-015B</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>0003100000117644</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
-"#;
+        "#;
 
         let mut reader = quick_xml::Reader::from_str(input);
         let object: Verblijfsobject = parse_manual_help(&mut reader, &mut Vec::new()).unwrap();

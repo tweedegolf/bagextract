@@ -104,9 +104,10 @@ fn parse_manual_step<B: std::io::BufRead>(input: B, result: &mut Postcodes) -> O
     loop {
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                if let b"Objecten:Nummeraanduiding" = e.name() {
                     let aanduiding = parse_manual_help(&mut reader, &mut buf)?;
                     if let Some(postcode) = aanduiding.postcode {
+                        // println!("identificatie {:?}", aanduiding.identificatie);
                         result.push(aanduiding.identificatie, postcode);
                     }
                 }
@@ -142,12 +143,12 @@ fn parse_manual_help<B: std::io::BufRead>(
     loop {
         match reader.read_event(buf) {
             Ok(Event::Start(ref e)) => match e.name() {
-                b"bag_LVC:identificatie" => state = State::Identificatie,
-                b"bag_LVC:postcode" => state = State::Postcode,
+                b"Objecten:identificatie" => state = State::Identificatie,
+                b"Objecten:postcode" => state = State::Postcode,
                 _ => (),
             },
             Ok(Event::End(ref e)) => {
-                if let b"bag_LVC:Nummeraanduiding" = e.name() {
+                if let b"Objecten:Nummeraanduiding" = e.name() {
                     match identificatie {
                         Some(identificatie) => {
                             return Some(Nummeraanduiding {
@@ -196,18 +197,6 @@ mod test {
         #[test]
         fn parse_verblijfsobject() {
             let input = r#"
-    <bag_LVC:Verblijfsobject><bag_LVC:gerelateerdeAdressen><bag_LVC:hoofdadres><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie></bag_LVC:hoofdadres></bag_LVC:gerelateerdeAdressen>
-
-    <bag_LVC:identificatie>0000010000057469</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:officieel>N</bag_LVC:officieel>
-
-
-    <bag_LVC:verblijfsobjectGeometrie><gml:Point srsName="urn:ogc:def:crs:EPSG::28992">
-      <gml:pos>188391.884 334586.439 0.0</gml:pos>
-    </gml:Point></bag_LVC:verblijfsobjectGeometrie>
-
-
-
-    <bag_LVC:gebruiksdoelVerblijfsobject>woonfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>72</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>1883100000010452</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
     "#;
 
             let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
@@ -218,27 +207,6 @@ mod test {
         #[test]
         fn wrapper() {
             let input = r#"
-                    <xb:BAG-Extract-Deelbestand-LVC>
-                      <xb:antwoord>
-                        <xb:vraag>
-                          <selecties-extract:Gebied-Registratief>
-                            <selecties-extract:Gebied-NLD>
-                              <selecties-extract:GebiedIdentificatie>9999</selecties-extract:GebiedIdentificatie>
-                              <selecties-extract:GebiedNaam>Nederland</selecties-extract:GebiedNaam>
-                              <selecties-extract:gebiedTypeNederland>1</selecties-extract:gebiedTypeNederland>
-                            </selecties-extract:Gebied-NLD>
-                          </selecties-extract:Gebied-Registratief>
-                          <selecties-extract:StandTechnischeDatum>20211008</selecties-extract:StandTechnischeDatum>
-                        </xb:vraag>
-                        <xb:producten>
-                            <product_LVC:LVC-product>
-                                <bag_LVC:Verblijfsobject><bag_LVC:gerelateerdeAdressen><bag_LVC:hoofdadres><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie></bag_LVC:hoofdadres></bag_LVC:gerelateerdeAdressen><bag_LVC:identificatie>0000010000057469</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:verblijfsobjectGeometrie><gml:Point srsName="urn:ogc:def:crs:EPSG::28992">
-                                  <gml:pos>188391.884 334586.439 0.0</gml:pos>
-                                </gml:Point></bag_LVC:verblijfsobjectGeometrie><bag_LVC:gebruiksdoelVerblijfsobject>woonfunctie</bag_LVC:gebruiksdoelVerblijfsobject><bag_LVC:oppervlakteVerblijfsobject>72</bag_LVC:oppervlakteVerblijfsobject><bag_LVC:verblijfsobjectStatus>Verblijfsobject in gebruik</bag_LVC:verblijfsobjectStatus><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:gerelateerdPand><bag_LVC:identificatie>1883100000010452</bag_LVC:identificatie></bag_LVC:gerelateerdPand></bag_LVC:Verblijfsobject>
-                            </product_LVC:LVC-product>
-                        </xb:producten>
-                      </xb:antwoord>
-                    </xb:BAG-Extract-Deelbestand-LVC>
                 "#;
 
             let object: Wrapper<Nummeraanduiding> = quick_xml::de::from_str(input).unwrap();
@@ -249,7 +217,7 @@ mod test {
         #[test]
         fn parse_nummeraanduiding() {
             let input = r#"
-                <bag_LVC:Nummeraanduiding><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:huisnummer>32</bag_LVC:huisnummer><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:huisletter>A</bag_LVC:huisletter><bag_LVC:postcode>6131BE</bag_LVC:postcode><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:typeAdresseerbaarObject>Verblijfsobject</bag_LVC:typeAdresseerbaarObject><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:nummeraanduidingStatus>Naamgeving uitgegeven</bag_LVC:nummeraanduidingStatus><bag_LVC:gerelateerdeOpenbareRuimte><bag_LVC:identificatie>1883300000001522</bag_LVC:identificatie></bag_LVC:gerelateerdeOpenbareRuimte></bag_LVC:Nummeraanduiding>
+
     "#;
 
             let object: Nummeraanduiding = quick_xml::de::from_str(input).unwrap();
@@ -261,7 +229,6 @@ mod test {
     #[test]
     fn parse_nummeraanduiding_manual() {
         let input = r#"
-            <bag_LVC:Nummeraanduiding><bag_LVC:identificatie>0000200000057534</bag_LVC:identificatie><bag_LVC:aanduidingRecordInactief>N</bag_LVC:aanduidingRecordInactief><bag_LVC:aanduidingRecordCorrectie>0</bag_LVC:aanduidingRecordCorrectie><bag_LVC:huisnummer>32</bag_LVC:huisnummer><bag_LVC:officieel>N</bag_LVC:officieel><bag_LVC:huisletter>A</bag_LVC:huisletter><bag_LVC:postcode>6131BE</bag_LVC:postcode><bag_LVC:tijdvakgeldigheid><bagtype:begindatumTijdvakGeldigheid>2018032600000000</bagtype:begindatumTijdvakGeldigheid><bagtype:einddatumTijdvakGeldigheid>2018040400000000</bagtype:einddatumTijdvakGeldigheid></bag_LVC:tijdvakgeldigheid><bag_LVC:inOnderzoek>N</bag_LVC:inOnderzoek><bag_LVC:typeAdresseerbaarObject>Verblijfsobject</bag_LVC:typeAdresseerbaarObject><bag_LVC:bron><bagtype:documentdatum>20180326</bagtype:documentdatum><bagtype:documentnummer>BV05.00043-HLG</bagtype:documentnummer></bag_LVC:bron><bag_LVC:nummeraanduidingStatus>Naamgeving uitgegeven</bag_LVC:nummeraanduidingStatus><bag_LVC:gerelateerdeOpenbareRuimte><bag_LVC:identificatie>1883300000001522</bag_LVC:identificatie></bag_LVC:gerelateerdeOpenbareRuimte></bag_LVC:Nummeraanduiding>
 "#;
 
         let mut reader = quick_xml::Reader::from_str(input);

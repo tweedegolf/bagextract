@@ -182,6 +182,7 @@ where
     println!("Inserting data into adressen_28992");
 
     let mut writer = client.copy_in("COPY adressen_28992 FROM stdin").unwrap();
+
     for (postcode, points) in data {
         if postcode > Postcode::MAX {
             break;
@@ -274,25 +275,6 @@ impl Points {
         })
     }
 }
-
-const POINTS: &[Point] = &[
-    Point::new(5.11007074917847, 52.062321384871),
-    Point::new(4.7464139321804, 51.6071932738763),
-    Point::new(4.86228629544573, 52.3053347047553),
-    Point::new(4.03001520963129, 51.3487238241373),
-    Point::new(4.8786874468356, 52.2992079812286),
-    Point::new(5.82994166739256, 51.804506206861),
-    Point::new(4.72007507606698, 51.5468387432124),
-    Point::new(5.30626765415776, 52.162948264751),
-    Point::new(5.11007074917847, 52.062321384871),
-    Point::new(4.7464139321804, 51.6071932738763),
-    Point::new(4.86228629544573, 52.3053347047553),
-    Point::new(4.03001520963129, 51.3487238241373),
-    Point::new(4.8786874468356, 52.2992079812286),
-    Point::new(5.82994166739256, 51.804506206861),
-    Point::new(4.72007507606698, 51.5468387432124),
-    Point::new(5.30626765415776, 52.162948264751),
-];
 
 #[cfg(test)]
 mod dbtest {
